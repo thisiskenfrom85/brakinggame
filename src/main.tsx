@@ -124,6 +124,7 @@ class TrackAudioController {
   private volume = 0.85;
   private window: TrackAudioWindow | null;
   private hasStarted = false;
+  private loadPromise: Promise<void> | null = null;
 
   constructor(window: TrackAudioWindow | null, volume: number) {
     this.window = window;
@@ -138,8 +139,9 @@ class TrackAudioController {
       this.state = "unavailable";
       return;
     }
+    if (this.loadPromise) return this.loadPromise;
     this.state = "loading";
-    await new Promise<void>((resolve, reject) => {
+    this.loadPromise = new Promise<void>((resolve, reject) => {
       if (this.audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
         resolve();
         return;
@@ -162,7 +164,8 @@ class TrackAudioController {
       this.audio.addEventListener("error", onError, { once: true });
       this.audio.load();
     });
-    this.state = "ready";
+    await this.loadPromise;
+    if (this.state === "loading") this.state = "ready";
   }
 
   async start() {
@@ -170,15 +173,16 @@ class TrackAudioController {
       this.state = "unavailable";
       return;
     }
-    if (this.state === "idle") await this.load();
-    this.audio.currentTime = this.clipTimeForLapTime(this.window.startTime);
+    if (this.state === "idle") void this.load().catch(() => {
+      this.state = "unavailable";
+    });
+    this.safeSeek(this.clipTimeForLapTime(this.window.startTime));
     this.audio.playbackRate = this.playbackRate();
     this.audio.volume = this.volume;
+    this.hasStarted = true;
+    this.state = "running";
     try {
-      const playPromise = this.audio.play();
-      this.hasStarted = true;
-      this.state = "running";
-      await playPromise;
+      await this.audio.play();
     } catch {
       this.state = "blocked";
     }
@@ -219,7 +223,7 @@ class TrackAudioController {
       });
     }
     const target = this.clipTimeForLapTime(this.window.startTime + elapsed);
-    if (Math.abs(this.audio.currentTime - target) > 0.28) this.audio.currentTime = target;
+    if (Math.abs(this.audio.currentTime - target) > 0.28) this.safeSeek(target);
     if (this.audio.currentTime >= this.clipTimeForLapTime(this.window.endTime) - 0.04) this.audio.pause();
   }
 
@@ -243,6 +247,15 @@ class TrackAudioController {
       ? this.audio.duration
       : this.window?.lapTime ?? 1;
     return clamp(duration / (this.window?.lapTime ?? duration), 0.96, 1.04);
+  }
+
+  private safeSeek(time: number) {
+    if (this.audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
+    try {
+      this.audio.currentTime = time;
+    } catch {
+      this.state = "blocked";
+    }
   }
 }
 
@@ -1148,6 +1161,7 @@ function RunScreen({
   const [audioState, setAudioState] = useState<EngineAudioState>("idle");
   const pausedRef = useRef(false);
   const audioReadyRef = useRef(false);
+  const runArmedRef = useRef(false);
   const elapsedRef = useRef(0);
   const lastFrameAt = useRef<number | null>(null);
   const lastPaintAt = useRef(0);
@@ -1167,8 +1181,11 @@ function RunScreen({
 
   const armAudio = useCallback(() => {
     const controller = audioRef.current;
-    audioReadyRef.current = true;
-    setRunArmed(true);
+    if (!runArmedRef.current) {
+      runArmedRef.current = true;
+      audioReadyRef.current = true;
+      setRunArmed(true);
+    }
     if (!controller) {
       setAudioState("unavailable");
       return;
@@ -1260,9 +1277,7 @@ function RunScreen({
 
   const ref = sampleAt(reference, elapsed);
   const prompt = ref.brake > 0.5 ? "Brake" : ref.throttle > 50 ? "Throttle" : "Release";
-  const command = audioState === "loading"
-    ? "Audio loading"
-    : !runArmed && (audioState === "ready" || audioState === "blocked")
+  const command = !runArmed
       ? "Tap to start run"
       : audioState === "blocked"
         ? "Audio blocked"
@@ -1280,11 +1295,16 @@ function RunScreen({
         </div>
         <div className="run-clock">{Math.max(0, duration - elapsed).toFixed(1)}</div>
       </header>
-      <section className="stage">
+      <section
+        className="stage"
+        onPointerDown={() => {
+          if (!runArmedRef.current) armAudio();
+        }}
+      >
         <div className="run-command">
           <Eyebrow tag>{command}</Eyebrow>
         </div>
-        {!runArmed && (audioState === "ready" || audioState === "blocked") ? (
+        {!runArmed ? (
           <button className="audio-unlock" onClick={armAudio}>
             Tap to start run
           </button>
