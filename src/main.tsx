@@ -15,6 +15,7 @@ import "./styles.css";
 
 const LEADERBOARD_KEY = "braketrace.leaderboard.v1";
 const CALIBRATION_KEY = "braketrace.calibration.v1";
+const AUDIO_VOLUME_KEY = "braketrace.audioVolume.v1";
 const IDLE_MS = 90_000;
 const DRIVER_IMAGE_BASE = "/assets/drivers";
 const ENGINE_AUDIO_PATH = "/assets/audio/engine-loop.m4a";
@@ -77,8 +78,10 @@ const CONTINENT_ORDER = ["Americas", "Europe", "Asia", "Oceania"];
 
 let sharedAudioContext: AudioContext | null = null;
 const engineBufferCache = new WeakMap<AudioContext, Promise<AudioBuffer>>();
+const processedEngineCache = new WeakMap<AudioContext, Promise<ProcessedEngineLoop>>();
 
 type Screen = "attract" | "track" | "driver" | "segment" | "ready" | "run" | "result" | "leaderboard" | "calibration";
+type EngineAudioState = "idle" | "loading" | "ready" | "running" | "blocked" | "unavailable";
 type Calibration = {
   gamepadIndex: number | null;
   brakeAxis: number | null;
@@ -99,6 +102,15 @@ const defaultCalibration: Calibration = {
   brakeInvert: false,
   throttleInvert: false,
   deadZone: 0.04
+};
+
+type ProcessedEngineLoop = {
+  buffer: AudioBuffer;
+  duration: number;
+  sourceDuration: number;
+  startTime: number;
+  endTime: number;
+  peak: number;
 };
 
 function clamp(value: number, min = 0, max = 1) {
@@ -131,8 +143,244 @@ function loadEngineBuffer(ctx: AudioContext) {
   return pending;
 }
 
-function displayAudioState(ctx: AudioContext) {
-  return ctx.state === "running" ? "running" : "suspended";
+function displayAudioState(ctx: AudioContext): EngineAudioState {
+  return ctx.state === "running" ? "running" : "blocked";
+}
+
+function buildProcessedEngineLoop(ctx: AudioContext, source: AudioBuffer): ProcessedEngineLoop {
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const totalFrames = source.length;
+  const windowSize = Math.min(Math.max(1024, Math.round(sampleRate * 0.045)), 4096);
+  const hop = Math.max(256, Math.round(windowSize / 4));
+  const analysisStart = Math.min(Math.round(sampleRate * 0.35), Math.max(0, totalFrames - windowSize));
+  const analysisEnd = Math.max(analysisStart + windowSize, totalFrames - Math.round(sampleRate * 0.35));
+  const mono = source.getChannelData(0);
+  const levels: { start: number; rms: number }[] = [];
+
+  for (let start = analysisStart; start + windowSize < analysisEnd; start += hop) {
+    let sum = 0;
+    for (let index = 0; index < windowSize; index += 1) {
+      const sample = mono[start + index] ?? 0;
+      sum += sample * sample;
+    }
+    levels.push({ start, rms: Math.sqrt(sum / windowSize) });
+  }
+
+  const targetFrames = Math.min(
+    Math.max(Math.round(sampleRate * 1.8), Math.round(totalFrames * 0.18)),
+    Math.round(sampleRate * 3.2),
+    Math.max(windowSize * 2, totalFrames - analysisStart)
+  );
+  const spanWindows = Math.max(3, Math.round(targetFrames / hop));
+  let bestStart = analysisStart;
+  let bestScore = -Infinity;
+
+  for (let index = 0; index + spanWindows < levels.length; index += 1) {
+    const slice = levels.slice(index, index + spanWindows);
+    const avg = slice.reduce((sum, item) => sum + item.rms, 0) / slice.length;
+    const variance = slice.reduce((sum, item) => sum + (item.rms - avg) ** 2, 0) / slice.length;
+    const stabilityPenalty = Math.sqrt(variance) * 0.85;
+    const edgePenalty = index < 4 || index + spanWindows > levels.length - 4 ? avg * 0.12 : 0;
+    const score = avg - stabilityPenalty - edgePenalty;
+    if (score > bestScore) {
+      bestScore = score;
+      bestStart = levels[index].start;
+    }
+  }
+
+  const loopFrames = Math.min(targetFrames, totalFrames - bestStart);
+  const fadeFrames = Math.min(Math.round(sampleRate * 0.09), Math.round(loopFrames * 0.18));
+  const outputFrames = Math.max(windowSize, loopFrames - fadeFrames);
+  const output = ctx.createBuffer(channels, outputFrames, sampleRate);
+  let peak = 0.001;
+
+  for (let channel = 0; channel < channels; channel += 1) {
+    const input = source.getChannelData(channel);
+    const outputData = output.getChannelData(channel);
+    for (let index = 0; index < outputFrames; index += 1) {
+      let sample = input[bestStart + index] ?? 0;
+      const fadeIndex = index - (outputFrames - fadeFrames);
+      if (fadeIndex >= 0) {
+        const ratio = fadeIndex / Math.max(1, fadeFrames - 1);
+        const endGain = Math.cos(ratio * Math.PI * 0.5);
+        const startGain = Math.sin(ratio * Math.PI * 0.5);
+        const startSample = input[bestStart + fadeIndex] ?? 0;
+        sample = sample * endGain + startSample * startGain;
+      }
+      outputData[index] = sample;
+      peak = Math.max(peak, Math.abs(sample));
+    }
+  }
+
+  const normalizeGain = Math.min(2.8, 0.72 / peak);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const outputData = output.getChannelData(channel);
+    for (let index = 0; index < outputData.length; index += 1) {
+      outputData[index] *= normalizeGain;
+    }
+  }
+
+  return {
+    buffer: output,
+    duration: output.duration,
+    sourceDuration: source.duration,
+    startTime: bestStart / sampleRate,
+    endTime: (bestStart + loopFrames) / sampleRate,
+    peak: peak * normalizeGain
+  };
+}
+
+function loadProcessedEngineLoop(ctx: AudioContext) {
+  const cached = processedEngineCache.get(ctx);
+  if (cached) return cached;
+  const pending = loadEngineBuffer(ctx).then((buffer) => buildProcessedEngineLoop(ctx, buffer));
+  processedEngineCache.set(ctx, pending);
+  return pending;
+}
+
+class EngineAudioController {
+  readonly ctx: AudioContext;
+  state: EngineAudioState = "idle";
+  loop: ProcessedEngineLoop | null = null;
+  private source: AudioBufferSourceNode | null = null;
+  private accent: AudioBufferSourceNode | null = null;
+  private inputGain: GainNode;
+  private accentGain: GainNode;
+  private filter: BiquadFilterNode;
+  private masterGain: GainNode;
+  private lastGear: number | null = null;
+  private volume = 0.85;
+
+  constructor(ctx: AudioContext, volume: number) {
+    this.ctx = ctx;
+    this.volume = volume;
+    this.inputGain = ctx.createGain();
+    this.accentGain = ctx.createGain();
+    this.filter = ctx.createBiquadFilter();
+    this.masterGain = ctx.createGain();
+    this.inputGain.gain.value = 0.0001;
+    this.accentGain.gain.value = 0.0001;
+    this.filter.type = "lowpass";
+    this.filter.frequency.value = 2600;
+    this.filter.Q.value = 0.55;
+    this.masterGain.gain.value = volume;
+    this.inputGain.connect(this.filter);
+    this.accentGain.connect(this.filter);
+    this.filter.connect(this.masterGain).connect(ctx.destination);
+  }
+
+  async load() {
+    this.state = "loading";
+    this.loop = await loadProcessedEngineLoop(this.ctx);
+    this.state = this.ctx.state === "running" ? "ready" : "blocked";
+  }
+
+  async start() {
+    if (!this.loop) await this.load();
+    if (this.ctx.state !== "running") await this.ctx.resume();
+    if (this.ctx.state !== "running") {
+      this.state = "blocked";
+      return;
+    }
+    if (!this.source && this.loop) {
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.loop.buffer;
+      source.loop = true;
+      source.playbackRate.value = 1;
+      source.connect(this.inputGain);
+      source.start();
+      this.source = source;
+    }
+    this.state = "running";
+  }
+
+  async resume() {
+    if (this.ctx.state !== "running") await this.ctx.resume();
+    if (!this.source) await this.start();
+    this.state = this.ctx.state === "running" ? "running" : "blocked";
+  }
+
+  setVolume(volume: number) {
+    this.volume = clamp(volume, 0, 1);
+    this.masterGain.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
+  }
+
+  update(sample: Sample, pedals: { brake: number; throttle: number }, paused: boolean) {
+    if (!this.source || this.state !== "running") return;
+    const now = this.ctx.currentTime;
+    const referenceThrottle = sample.throttle / 100;
+    const userThrottleInfluence = (pedals.throttle - referenceThrottle) * 0.14;
+    const throttle = clamp(referenceThrottle + userThrottleInfluence);
+    const brake = clamp(Math.max(pedals.brake * 0.55, sample.brake * 0.4));
+    const rpmLoad = clamp((sample.rpm - 4500) / 7600, 0, 1);
+    const rate = paused ? 0.92 : clamp(0.85 + rpmLoad * 0.34 + throttle * 0.03 - brake * 0.04, 0.84, 1.22);
+    const level = paused ? 0.0001 : clamp(0.18 + throttle * 0.48 + rpmLoad * 0.18 - brake * 0.14, 0.07, 0.76);
+    const cutoff = paused ? 900 : clamp(1050 + rpmLoad * 3400 + throttle * 2200 - brake * 950, 850, 6800);
+
+    this.source.playbackRate.setTargetAtTime(rate, now, 0.09);
+    this.inputGain.gain.setTargetAtTime(level, now, 0.08);
+    this.filter.frequency.setTargetAtTime(cutoff, now, 0.1);
+
+    if (!paused && this.loop && this.lastGear !== null && sample.gear < this.lastGear) {
+      this.playDownshift(sample, rate);
+    }
+    this.lastGear = sample.gear;
+  }
+
+  stop() {
+    const now = this.ctx.currentTime;
+    const source = this.source;
+    const accent = this.accent;
+    const inputGain = this.inputGain;
+    const accentGain = this.accentGain;
+    const filter = this.filter;
+    const masterGain = this.masterGain;
+    try {
+      inputGain.gain.setTargetAtTime(0.0001, now, 0.025);
+      accentGain.gain.setTargetAtTime(0.0001, now, 0.025);
+      source?.stop(now + 0.1);
+      accent?.stop(now + 0.1);
+      window.setTimeout(() => {
+        try {
+          source?.disconnect();
+          accent?.disconnect();
+          inputGain.disconnect();
+          accentGain.disconnect();
+          filter.disconnect();
+          masterGain.disconnect();
+        } catch {
+          // The graph may already be disconnected by the browser.
+        }
+      }, 130);
+    } catch {
+      // Browsers may already stop audio nodes during teardown.
+    }
+    this.source = null;
+    this.accent = null;
+    this.state = "idle";
+  }
+
+  private playDownshift(sample: Sample, baseRate: number) {
+    if (!this.loop) return;
+    const now = this.ctx.currentTime;
+    try {
+      this.accent?.stop(now);
+    } catch {
+      // Ignore stale accent nodes.
+    }
+    const accent = this.ctx.createBufferSource();
+    accent.buffer = this.loop.buffer;
+    accent.loop = false;
+    accent.playbackRate.value = clamp(baseRate + 0.12 + sample.gear * 0.01, 0.9, 1.28);
+    accent.connect(this.accentGain);
+    this.accentGain.gain.cancelScheduledValues(now);
+    this.accentGain.gain.setValueAtTime(0.0001, now);
+    this.accentGain.gain.linearRampToValueAtTime(0.18, now + 0.035);
+    this.accentGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    accent.start(now, 0, Math.min(0.32, this.loop.duration));
+    this.accent = accent;
+  }
 }
 
 function primeAudio() {
@@ -140,7 +388,7 @@ function primeAudio() {
   if (!ctx) return Promise.resolve(false);
 
   return ctx.resume()
-    .then(() => loadEngineBuffer(ctx))
+    .then(() => loadProcessedEngineLoop(ctx))
     .then(() => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -670,11 +918,15 @@ function TelemetryGraph({
 function CalibrationScreen({
   calibration,
   setCalibration,
+  audioVolume,
+  setAudioVolume,
   pedals,
   onDone
 }: {
   calibration: Calibration;
   setCalibration: (calibration: Calibration) => void;
+  audioVolume: number;
+  setAudioVolume: (volume: number) => void;
   pedals: ReturnType<typeof useLivePedals>;
   onDone: () => void;
 }) {
@@ -866,9 +1118,124 @@ function CalibrationScreen({
             </label>
           </div>
         </div>
+        <AudioDiagnostics volume={audioVolume} setVolume={setAudioVolume} />
         {buttons.length ? <p className="small-copy">PS4 preset uses button 6 for L2 throttle and button 7 for R2 brake. The Ready screen pedal meters are the quickest test.</p> : null}
       </section>
     </main>
+  );
+}
+
+function AudioDiagnostics({ volume, setVolume }: { volume: number; setVolume: (volume: number) => void }) {
+  const controllerRef = useRef<EngineAudioController | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const [state, setState] = useState<EngineAudioState>(() => {
+    const ctx = getSharedAudioContext();
+    return ctx ? (ctx.state === "running" ? "idle" : "blocked") : "unavailable";
+  });
+  const [loop, setLoop] = useState<ProcessedEngineLoop | null>(null);
+  const [message, setMessage] = useState("Ready to test.");
+
+  const stopTest = useCallback(() => {
+    if (intervalRef.current !== null) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    controllerRef.current?.stop();
+    controllerRef.current = null;
+    setState("idle");
+    setMessage("Audio test stopped.");
+  }, []);
+
+  useEffect(() => () => stopTest(), [stopTest]);
+
+  const startTest = async () => {
+    if (controllerRef.current) {
+      stopTest();
+      return;
+    }
+
+    const ctx = getSharedAudioContext();
+    if (!ctx) {
+      setState("unavailable");
+      setMessage("WebAudio is not available in this browser.");
+      return;
+    }
+
+    const controller = new EngineAudioController(ctx, volume);
+    controllerRef.current = controller;
+    setState("loading");
+    setMessage("Loading bundled engine clip.");
+
+    try {
+      await controller.load();
+      setLoop(controller.loop);
+      await controller.start();
+      setState(controller.state);
+      setMessage(controller.state === "running" ? "Engine test running." : "Tap test again if the browser blocked audio.");
+      const startedAt = performance.now();
+      intervalRef.current = window.setInterval(() => {
+        const t = (performance.now() - startedAt) / 1000;
+        const throttle = 0.45 + Math.sin(t * 1.6) * 0.32;
+        controller.update(
+          {
+            t,
+            distance: 0,
+            throttle: clamp(throttle) * 100,
+            brake: Math.sin(t * 0.75) > 0.68 ? 1 : 0,
+            speed: 160 + throttle * 100,
+            rpm: 6500 + clamp(throttle) * 4200,
+            gear: 4 + Math.round(clamp(throttle) * 3)
+          },
+          { brake: Math.sin(t * 0.75) > 0.68 ? 1 : 0, throttle: clamp(throttle) },
+          false
+        );
+      }, 80);
+    } catch (error) {
+      controller.stop();
+      controllerRef.current = null;
+      setState("unavailable");
+      setMessage(error instanceof Error ? error.message : "Engine audio failed to load.");
+    }
+  };
+
+  useEffect(() => {
+    controllerRef.current?.setVolume(volume);
+  }, [volume]);
+
+  return (
+    <div className="audio-diagnostics">
+      <div>
+        <h2>Audio</h2>
+        <div className="mapping-summary">
+          <span>Context</span>
+          <strong>{getSharedAudioContext()?.state ?? "none"}</strong>
+          <span>Engine</span>
+          <strong>{state}</strong>
+          <span>Loop</span>
+          <strong>{loop ? `${loop.duration.toFixed(2)}s from ${loop.sourceDuration.toFixed(2)}s clip` : "Not loaded"}</strong>
+          <span>Region</span>
+          <strong>{loop ? `${loop.startTime.toFixed(2)}-${loop.endTime.toFixed(2)}s` : "Pending"}</strong>
+        </div>
+        <p className="small-copy">{message}</p>
+      </div>
+      <div>
+        <div className="operator-actions">
+          <Button onClick={startTest}>{controllerRef.current ? "Stop engine" : "Test engine"}</Button>
+          <Button variant="ghost" onClick={stopTest}>Mute</Button>
+        </div>
+        <label className="range-row">
+          Master volume
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={volume}
+            onChange={(event) => setVolume(Number(event.target.value))}
+          />
+        </label>
+      </div>
+    </div>
   );
 }
 
@@ -877,6 +1244,7 @@ function RunScreen({
   segment,
   reference,
   calibration,
+  audioVolume,
   onComplete,
   onQuit
 }: {
@@ -884,6 +1252,7 @@ function RunScreen({
   segment: Segment;
   reference: Sample[];
   calibration: Calibration;
+  audioVolume: number;
   onComplete: (run: RunSample[], breakdown: ScoreBreakdown) => void;
   onQuit: () => void;
 }) {
@@ -892,7 +1261,7 @@ function RunScreen({
   const [run, setRun] = useState<RunSample[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [audioState, setAudioState] = useState<"loading" | "running" | "suspended" | "unavailable">("loading");
+  const [audioState, setAudioState] = useState<EngineAudioState>("idle");
   const pausedRef = useRef(false);
   const audioReadyRef = useRef(false);
   const elapsedRef = useRef(0);
@@ -901,15 +1270,7 @@ function RunScreen({
   const lastSampleAt = useRef(0);
   const runRef = useRef<RunSample[]>([]);
   const completedRef = useRef(false);
-  const audioRef = useRef<{
-    ctx: AudioContext;
-    engine: AudioBufferSourceNode;
-    brake: OscillatorNode;
-    engineGain: GainNode;
-    brakeGain: GainNode;
-    masterGain: GainNode;
-    filter: BiquadFilterNode;
-  } | null>(null);
+  const audioRef = useRef<EngineAudioController | null>(null);
   const duration = reference[reference.length - 1].t;
 
   useEffect(() => {
@@ -918,23 +1279,21 @@ function RunScreen({
 
   useEffect(() => {
     pausedRef.current = paused;
-    if (audioRef.current) {
-      audioRef.current.ctx.resume().then(() => {
-        if (audioRef.current) setAudioState(displayAudioState(audioRef.current.ctx));
-      }).catch(() => {
-        setAudioState("suspended");
-      });
-    }
   }, [paused]);
 
   const armAudio = useCallback(() => {
-    const ctx = audioRef.current?.ctx ?? getSharedAudioContext();
-    if (!ctx) {
+    const controller = audioRef.current;
+    if (!controller) {
       setAudioState("unavailable");
       return;
     }
-    ctx.resume().then(() => setAudioState(displayAudioState(ctx))).catch(() => {
-      setAudioState("suspended");
+    controller.resume().then(() => {
+      const running = controller.state === "running";
+      audioReadyRef.current = running || controller.state === "unavailable";
+      setAudioState(controller.state);
+    }).catch(() => {
+      audioReadyRef.current = false;
+      setAudioState("blocked");
     });
   }, []);
 
@@ -943,38 +1302,20 @@ function RunScreen({
     let audioCancelled = false;
     audioReadyRef.current = false;
     if (ctx) {
-      ctx.resume().then(() => setAudioState(displayAudioState(ctx))).catch(() => {
-        setAudioState("suspended");
-      });
-      loadEngineBuffer(ctx)
-        .then((buffer) => {
+      const controller = new EngineAudioController(ctx, audioVolume);
+      audioRef.current = controller;
+      setAudioState("loading");
+      controller.load()
+        .then(() => controller.start())
+        .then(() => {
           if (audioCancelled) return;
-          const engine = ctx.createBufferSource();
-          const brake = ctx.createOscillator();
-          const engineGain = ctx.createGain();
-          const brakeGain = ctx.createGain();
-          const masterGain = ctx.createGain();
-          const filter = ctx.createBiquadFilter();
-          engine.buffer = buffer;
-          engine.loop = true;
-          engine.playbackRate.value = 1;
-          brake.type = "triangle";
-          engineGain.gain.value = 0.0001;
-          brakeGain.gain.value = 0.0001;
-          masterGain.gain.value = 1;
-          filter.type = "lowpass";
-          filter.frequency.value = 2800;
-          filter.Q.value = 0.75;
-          engine.connect(engineGain).connect(filter);
-          brake.connect(brakeGain).connect(filter);
-          filter.connect(masterGain).connect(ctx.destination);
-          engine.start();
-          brake.start();
-          audioRef.current = { ctx, engine, brake, engineGain, brakeGain, masterGain, filter };
-          audioReadyRef.current = true;
-          setAudioState(displayAudioState(ctx));
+          const running = controller.state === "running";
+          audioReadyRef.current = running;
+          setAudioState(controller.state);
         })
         .catch(() => {
+          if (audioCancelled) return;
+          audioRef.current?.stop();
           audioRef.current = null;
           audioReadyRef.current = true;
           setAudioState("unavailable");
@@ -1013,20 +1354,7 @@ function RunScreen({
         });
       }
 
-      if (audioRef.current) {
-        const throttleLoad = Math.max(currentPedals.throttle, ref.throttle / 100);
-        const brakeLoad = currentPedals.brake;
-        const rpmLoad = clamp(ref.rpm / 12000, 0.18, 1);
-        const playbackRate = clamp(0.58 + rpmLoad * 1.12 + throttleLoad * 0.22 - brakeLoad * 0.08, 0.55, 1.85);
-        const engineLevel = pausedRef.current ? 0.0001 : 0.28 + throttleLoad * 0.72;
-        const filterFrequency = 1100 + rpmLoad * 4600 + throttleLoad * 3200 - brakeLoad * 650;
-        const nowAudio = audioRef.current.ctx.currentTime;
-        audioRef.current.engine.playbackRate.setTargetAtTime(playbackRate, nowAudio, 0.04);
-        audioRef.current.filter.frequency.setTargetAtTime(clamp(filterFrequency, 850, 9000), nowAudio, 0.05);
-        audioRef.current.brake.frequency.setTargetAtTime(90 + brakeLoad * 120 + ref.gear * 12, nowAudio, 0.04);
-        audioRef.current.engineGain.gain.setTargetAtTime(engineLevel, nowAudio, 0.04);
-        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.075, nowAudio, 0.04);
-      }
+      audioRef.current?.update(ref, currentPedals, pausedRef.current);
 
       if (t >= duration && !completedRef.current) {
         completedRef.current = true;
@@ -1042,25 +1370,14 @@ function RunScreen({
     return () => {
       audioCancelled = true;
       cancelAnimationFrame(frame);
-      if (audioRef.current) {
-        try {
-          audioRef.current.engineGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
-          audioRef.current.brakeGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
-          audioRef.current.engine.stop(audioRef.current.ctx.currentTime + 0.05);
-          audioRef.current.brake.stop(audioRef.current.ctx.currentTime + 0.05);
-          audioRef.current.engine.disconnect();
-          audioRef.current.brake.disconnect();
-          audioRef.current.engineGain.disconnect();
-          audioRef.current.brakeGain.disconnect();
-          audioRef.current.masterGain.disconnect();
-          audioRef.current.filter.disconnect();
-        } catch {
-          // The nodes may already be stopped by the browser during teardown.
-        }
-        audioRef.current = null;
-      }
+      audioRef.current?.stop();
+      audioRef.current = null;
     };
-  }, [duration, onComplete, reference]);
+  }, [audioVolume, duration, onComplete, reference]);
+
+  useEffect(() => {
+    audioRef.current?.setVolume(audioVolume);
+  }, [audioVolume]);
 
   const ref = sampleAt(reference, elapsed);
   const prompt = ref.brake > 0.5 ? "Brake" : ref.throttle > 50 ? "Throttle" : "Release";
@@ -1077,8 +1394,13 @@ function RunScreen({
       </header>
       <section className="stage">
         <div className="run-command">
-          <Eyebrow tag>{audioState === "loading" ? "Engine loading" : paused ? "Paused" : prompt}</Eyebrow>
+          <Eyebrow tag>{audioState === "loading" ? "Engine loading" : audioState === "blocked" ? "Tap to enable engine" : paused ? "Paused" : prompt}</Eyebrow>
         </div>
+        {audioState === "blocked" ? (
+          <button className="audio-unlock" onClick={armAudio}>
+            Tap to enable engine
+          </button>
+        ) : null}
         <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} />
       </section>
       <footer className="run-footer">
@@ -1261,6 +1583,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const [selectedSegmentId, setSelectedSegmentId] = useState(selectedTrack.segments[0]?.id ?? "");
   const [leaderboard, setLeaderboard] = useLocalStorageState<LeaderboardEntry[]>(LEADERBOARD_KEY, []);
   const [calibration, setCalibration] = useLocalStorageState<Calibration>(CALIBRATION_KEY, defaultCalibration);
+  const [audioVolume, setAudioVolume] = useLocalStorageState<number>(AUDIO_VOLUME_KEY, 0.85);
   const [lastEntryId, setLastEntryId] = useState<string | null>(null);
   const [secretClicks, setSecretClicks] = useState(0);
   const livePedals = useLivePedals(calibration);
@@ -1433,6 +1756,8 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
       <CalibrationScreen
         calibration={calibration}
         setCalibration={setCalibration}
+        audioVolume={audioVolume}
+        setAudioVolume={setAudioVolume}
         pedals={livePedals}
         onDone={() => setScreen("attract")}
       />
@@ -1522,6 +1847,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         segment={segment}
         reference={reference}
         calibration={calibration}
+        audioVolume={audioVolume}
         onComplete={completeRun}
         onQuit={resetToAttract}
       />

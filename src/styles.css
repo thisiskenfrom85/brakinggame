@@ -486,6 +486,7 @@ button {
   place-items: center;
   gap: 18px;
   padding: 10px 46px 18px;
+  position: relative;
 }
 
 .run-command {
@@ -498,6 +499,26 @@ button {
   min-width: 190px;
   padding: 9px 22px;
   text-align: center;
+}
+
+.audio-unlock {
+  appearance: none;
+  background: var(--accent);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 900;
+  left: 50%;
+  letter-spacing: 0.08em;
+  padding: 18px 28px;
+  position: absolute;
+  text-transform: uppercase;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
 }
 
 .graph-shell {
@@ -801,7 +822,8 @@ button {
   margin-top: 26px;
 }
 
-.calibration-grid > div {
+.calibration-grid > div,
+.audio-diagnostics {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -880,6 +902,19 @@ button {
   text-align: right;
 }
 
+.audio-diagnostics {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr;
+  gap: 28px;
+  margin-top: 28px;
+}
+
+.audio-diagnostics h2 {
+  font-size: 18px;
+  margin: 0 0 18px;
+  text-transform: uppercase;
+}
+
 .axis-row > span {
   color: var(--muted);
   font-size: 12px;
@@ -934,7 +969,8 @@ button {
 
   .choice-grid,
   .result-stats,
-  .calibration-grid {
+  .calibration-grid,
+  .audio-diagnostics {
     grid-template-columns: 1fr;
   }
 
