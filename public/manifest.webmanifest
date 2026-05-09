@@ -1,0 +1,17 @@
+{
+  "name": "BrakeTrace",
+  "short_name": "BrakeTrace",
+  "description": "Offline F1 braking-zone challenge for SPEC sim rigs.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#efeff2",
+  "theme_color": "#efeff2",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
