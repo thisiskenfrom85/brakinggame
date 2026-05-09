@@ -859,13 +859,15 @@ function RunScreen({
   segment,
   reference,
   calibration,
-  onComplete
+  onComplete,
+  onQuit
 }: {
   driver: DriverTrace;
   segment: Segment;
   reference: Sample[];
   calibration: Calibration;
   onComplete: (run: RunSample[], breakdown: ScoreBreakdown) => void;
+  onQuit: () => void;
 }) {
   const pedals = useLivePedals(calibration);
   const pedalsRef = useRef(pedals);
@@ -1061,6 +1063,9 @@ function RunScreen({
         <div className="run-control">
           <Button variant="secondary" onClick={() => setPaused((current) => !current)}>
             {paused ? "Resume" : "Pause"}
+          </Button>
+          <Button variant="ghost" onClick={onQuit}>
+            Quit
           </Button>
           <Button variant="ghost" onClick={armAudio}>
             Sound {audioState}
@@ -1496,6 +1501,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         reference={reference}
         calibration={calibration}
         onComplete={completeRun}
+        onQuit={resetToAttract}
       />
     );
   }
