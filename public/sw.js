@@ -1,11 +1,11 @@
-const CACHE_NAME = "braketrace-v10";
+const CACHE_NAME = "braketrace-v9";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
   "/data/fixtures-2025-manifest.json",
-  "/assets/audio/shanghai.m4a",
+  "/assets/audio/engine-loop.m4a",
   "/assets/drivers/ALB.webp",
   "/assets/drivers/ALO.webp",
   "/assets/drivers/ANT.webp",
