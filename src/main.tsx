@@ -1096,6 +1096,13 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
     setSelectedDriverCode(fixture.drivers[0]?.code ?? "");
   }, [fixture?.id]);
 
+  const driver = fixture?.drivers.find((item) => item.code === selectedDriverCode) ?? fixture?.drivers[0] ?? null;
+  const segment = fixture?.segments.find((item) => item.id === selectedSegmentId) ?? fixture?.segments[0] ?? null;
+  const reference = useMemo(() => (driver && segment ? segmentSamples(driver, segment) : []), [driver, segment]);
+  const key = fixture && driver && segment ? leaderboardKey(fixture, driver, segment) : "";
+  const currentBoard = key ? sortedLeaderboard(leaderboard, key) : [];
+  const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
+
   const openSecret = () => {
     setSecretClicks((clicks) => {
       const next = clicks + 1;
@@ -1161,12 +1168,21 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
     );
   }
 
-  const driver = fixture.drivers.find((item) => item.code === selectedDriverCode) ?? fixture.drivers[0]!;
-  const segment = fixture.segments.find((item) => item.id === selectedSegmentId) ?? fixture.segments[0]!;
-  const reference = useMemo(() => segmentSamples(driver, segment), [driver, segment]);
-  const key = leaderboardKey(fixture, driver, segment);
-  const currentBoard = sortedLeaderboard(leaderboard, key);
-  const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
+  if (!driver || !segment || reference.length === 0) {
+    return (
+      <StepChrome
+        eyebrow="Telemetry"
+        title="Loading driver trace."
+        italic={selectedTrack.event}
+        onBack={() => setScreen("track")}
+        onSecret={openSecret}
+      >
+        <div className="ready-stage">
+          <TrackMap fixture={selectedTrack} segment={fullTrackSegment(selectedTrack)} label={`${selectedTrack.name} map`} />
+        </div>
+      </StepChrome>
+    );
+  }
 
   const completeRun = (run: RunSample[], breakdown: ScoreBreakdown) => {
     const entry: LeaderboardEntry = {
