@@ -484,11 +484,11 @@ function DriverThumb({ driver }: { driver: DriverTrace }) {
 function PedalMeters({ brake, throttle }: { brake: number; throttle: number }) {
   return (
     <div className="pedal-meters">
-      <div className="pedal-meter">
+      <div className="pedal-meter pedal-meter-brake">
         <span>Brake</span>
         <div><i style={{ transform: `scaleY(${brake})` }} /></div>
       </div>
-      <div className="pedal-meter">
+      <div className="pedal-meter pedal-meter-throttle">
         <span>Throttle</span>
         <div><i style={{ transform: `scaleY(${throttle})` }} /></div>
       </div>

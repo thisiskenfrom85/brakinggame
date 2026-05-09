@@ -68,7 +68,7 @@ function fastestValidLap(laptimes) {
   return best;
 }
 
-function downsample(samples, max = 360) {
+function downsample(samples, max = 1000) {
   if (samples.length <= max) return samples;
   const result = [];
   for (let i = 0; i < max; i += 1) {

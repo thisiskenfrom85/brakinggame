@@ -1,4 +1,4 @@
-const CACHE_NAME = "braketrace-v6";
+const CACHE_NAME = "braketrace-v7";
 const APP_SHELL = [
   "/",
   "/index.html",

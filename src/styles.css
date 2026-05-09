@@ -620,9 +620,17 @@ button {
 .pedal-meter i {
   position: absolute;
   inset: 0;
-  background: var(--accent);
+  background: var(--pedal-color, var(--accent));
   border-radius: inherit;
   transform-origin: bottom;
+}
+
+.pedal-meter-brake {
+  --pedal-color: #ff4a42;
+}
+
+.pedal-meter-throttle {
+  --pedal-color: #25e892;
 }
 
 .result-screen,
