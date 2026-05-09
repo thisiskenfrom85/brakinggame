@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   DriverTrace,
@@ -18,6 +18,32 @@ const CALIBRATION_KEY = "braketrace.calibration.v1";
 const IDLE_MS = 90_000;
 const DRIVER_IMAGE_BASE = "/assets/drivers";
 const SEGMENT_ACCENTS = ["#f06aa7", "#ffc300", "#58c7ff", "#65df9c", "#8e7cff", "#ff8a5c", "#7dd3fc"];
+const COUNTRY_FLAGS: Record<string, string> = {
+  "Australian Grand Prix": "🇦🇺",
+  "Chinese Grand Prix": "🇨🇳",
+  "Japanese Grand Prix": "🇯🇵",
+  "Bahrain Grand Prix": "🇧🇭",
+  "Saudi Arabian Grand Prix": "🇸🇦",
+  "Miami Grand Prix": "🇺🇸",
+  "Emilia Romagna Grand Prix": "🇮🇹",
+  "Monaco Grand Prix": "🇲🇨",
+  "Spanish Grand Prix": "🇪🇸",
+  "Canadian Grand Prix": "🇨🇦",
+  "Austrian Grand Prix": "🇦🇹",
+  "British Grand Prix": "🇬🇧",
+  "Belgian Grand Prix": "🇧🇪",
+  "Hungarian Grand Prix": "🇭🇺",
+  "Dutch Grand Prix": "🇳🇱",
+  "Italian Grand Prix": "🇮🇹",
+  "Azerbaijan Grand Prix": "🇦🇿",
+  "Singapore Grand Prix": "🇸🇬",
+  "United States Grand Prix": "🇺🇸",
+  "Mexico City Grand Prix": "🇲🇽",
+  "São Paulo Grand Prix": "🇧🇷",
+  "Las Vegas Grand Prix": "🇺🇸",
+  "Qatar Grand Prix": "🇶🇦",
+  "Abu Dhabi Grand Prix": "🇦🇪"
+};
 
 let sharedAudioContext: AudioContext | null = null;
 
@@ -57,6 +83,10 @@ function getSharedAudioContext() {
     sharedAudioContext = new AudioCtx();
   }
   return sharedAudioContext;
+}
+
+function displayAudioState(ctx: AudioContext) {
+  return ctx.state === "running" ? "running" : "suspended";
 }
 
 function primeAudio() {
@@ -119,6 +149,10 @@ function trackDistance(fixture: TrackMapSource) {
 
 function fullTrackSegment(fixture: TrackMapSource) {
   return fixture.segments.find((item) => item.type === "full") ?? fixture.segments[fixture.segments.length - 1];
+}
+
+function flagForEvent(event: string) {
+  return COUNTRY_FLAGS[event] ?? "";
 }
 
 function pathFromMapPoints(points: Pick<TrackMapPoint, "x" | "y">[]) {
@@ -367,7 +401,7 @@ function ChoiceGrid<T extends string>({
   selected,
   onSelect
 }: {
-  items: { id: T; eyebrow?: string; title: string; meta?: string; accent?: string; visual?: React.ReactNode }[];
+  items: { id: T; eyebrow?: string; title: string; meta?: string; accent?: string; flag?: string; visual?: React.ReactNode }[];
   selected: T;
   onSelect: (id: T) => void;
 }) {
@@ -381,6 +415,7 @@ function ChoiceGrid<T extends string>({
           style={{ "--choice-accent": item.accent ?? "var(--accent)" } as React.CSSProperties}
         >
           <span className="choice-rule" />
+          {item.flag ? <span className="choice-flag">{item.flag}</span> : null}
           {item.visual ? <span className="choice-visual">{item.visual}</span> : null}
           {item.eyebrow ? <span className="eyebrow">{item.eyebrow}</span> : null}
           <strong>{item.title}</strong>
@@ -630,6 +665,7 @@ function RunScreen({
   const [run, setRun] = useState<RunSample[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [audioState, setAudioState] = useState<"starting" | "running" | "suspended" | "unavailable">("starting");
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
   const lastFrameAt = useRef<number | null>(null);
@@ -640,9 +676,12 @@ function RunScreen({
   const audioRef = useRef<{
     ctx: AudioContext;
     engine: OscillatorNode;
+    harmonic: OscillatorNode;
     brake: OscillatorNode;
     engineGain: GainNode;
+    harmonicGain: GainNode;
     brakeGain: GainNode;
+    masterGain: GainNode;
   } | null>(null);
   const duration = reference[reference.length - 1].t;
 
@@ -653,35 +692,64 @@ function RunScreen({
   useEffect(() => {
     pausedRef.current = paused;
     if (audioRef.current) {
-      if (paused) {
-        audioRef.current.ctx.suspend().catch(() => undefined);
-      } else {
-        audioRef.current.ctx.resume().catch(() => undefined);
-      }
+      audioRef.current.ctx.resume().then(() => {
+        if (audioRef.current) setAudioState(displayAudioState(audioRef.current.ctx));
+      }).catch(() => {
+        setAudioState("suspended");
+      });
     }
   }, [paused]);
+
+  const armAudio = useCallback(() => {
+    const ctx = audioRef.current?.ctx ?? getSharedAudioContext();
+    if (!ctx) {
+      setAudioState("unavailable");
+      return;
+    }
+    ctx.resume().then(() => setAudioState(displayAudioState(ctx))).catch(() => {
+      setAudioState("suspended");
+    });
+  }, []);
 
   useEffect(() => {
     const ctx = getSharedAudioContext();
     if (ctx) {
       try {
-        ctx.resume().catch(() => undefined);
+        ctx.resume().then(() => setAudioState(displayAudioState(ctx))).catch(() => {
+          setAudioState("suspended");
+        });
         const engine = ctx.createOscillator();
+        const harmonic = ctx.createOscillator();
         const brake = ctx.createOscillator();
         const engineGain = ctx.createGain();
+        const harmonicGain = ctx.createGain();
         const brakeGain = ctx.createGain();
+        const masterGain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
         engine.type = "sawtooth";
+        harmonic.type = "square";
         brake.type = "triangle";
         engineGain.gain.value = 0.0001;
+        harmonicGain.gain.value = 0.0001;
         brakeGain.gain.value = 0.0001;
-        engine.connect(engineGain).connect(ctx.destination);
-        brake.connect(brakeGain).connect(ctx.destination);
+        masterGain.gain.value = 0.82;
+        filter.type = "lowpass";
+        filter.frequency.value = 2600;
+        filter.Q.value = 0.6;
+        engine.connect(engineGain).connect(filter);
+        harmonic.connect(harmonicGain).connect(filter);
+        brake.connect(brakeGain).connect(filter);
+        filter.connect(masterGain).connect(ctx.destination);
         engine.start();
+        harmonic.start();
         brake.start();
-        audioRef.current = { ctx, engine, brake, engineGain, brakeGain };
+        audioRef.current = { ctx, engine, harmonic, brake, engineGain, harmonicGain, brakeGain, masterGain };
       } catch {
         audioRef.current = null;
+        setAudioState("unavailable");
       }
+    } else {
+      setAudioState("unavailable");
     }
 
     let frame = 0;
@@ -716,12 +784,15 @@ function RunScreen({
       if (audioRef.current) {
         const throttleLoad = Math.max(currentPedals.throttle, ref.throttle / 100);
         const brakeLoad = currentPedals.brake;
-        const frequency = 180 + clamp(ref.rpm / 12000, 0.15, 1) * 460 + throttleLoad * 160 - brakeLoad * 70;
+        const frequency = 95 + clamp(ref.rpm / 12000, 0.15, 1) * 740 + throttleLoad * 220 - brakeLoad * 85;
+        const engineLevel = pausedRef.current ? 0.0001 : 0.075 + throttleLoad * 0.22;
         const nowAudio = audioRef.current.ctx.currentTime;
         audioRef.current.engine.frequency.setTargetAtTime(frequency, nowAudio, 0.03);
+        audioRef.current.harmonic.frequency.setTargetAtTime(frequency * 1.98, nowAudio, 0.035);
         audioRef.current.brake.frequency.setTargetAtTime(90 + brakeLoad * 120 + ref.gear * 12, nowAudio, 0.04);
-        audioRef.current.engineGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : 0.035 + throttleLoad * 0.11, nowAudio, 0.04);
-        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.075, nowAudio, 0.04);
+        audioRef.current.engineGain.gain.setTargetAtTime(engineLevel, nowAudio, 0.04);
+        audioRef.current.harmonicGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : engineLevel * 0.22, nowAudio, 0.04);
+        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.065, nowAudio, 0.04);
       }
 
       if (t >= duration && !completedRef.current) {
@@ -740,13 +811,18 @@ function RunScreen({
       if (audioRef.current) {
         try {
           audioRef.current.engineGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
+          audioRef.current.harmonicGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
           audioRef.current.brakeGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
           audioRef.current.engine.stop(audioRef.current.ctx.currentTime + 0.05);
+          audioRef.current.harmonic.stop(audioRef.current.ctx.currentTime + 0.05);
           audioRef.current.brake.stop(audioRef.current.ctx.currentTime + 0.05);
           audioRef.current.engine.disconnect();
+          audioRef.current.harmonic.disconnect();
           audioRef.current.brake.disconnect();
           audioRef.current.engineGain.disconnect();
+          audioRef.current.harmonicGain.disconnect();
           audioRef.current.brakeGain.disconnect();
+          audioRef.current.masterGain.disconnect();
         } catch {
           // The nodes may already be stopped by the browser during teardown.
         }
@@ -778,6 +854,9 @@ function RunScreen({
         <div className="run-control">
           <Button variant="secondary" onClick={() => setPaused((current) => !current)}>
             {paused ? "Resume" : "Pause"}
+          </Button>
+          <Button variant="ghost" onClick={armAudio}>
+            Sound {audioState}
           </Button>
         </div>
         <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
@@ -1056,6 +1135,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
             id: item.id,
             eyebrow: `${item.year} · ${item.session}`,
             title: item.name,
+            flag: flagForEvent(item.event),
             meta: `${item.driverCount} drivers · ${(trackDistance(item) / 1000).toFixed(1)} km`,
             visual: <TrackMap fixture={item} segment={fullTrackSegment(item)} label={`${item.name} map`} />
           }))}
@@ -1083,7 +1163,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
 
   const driver = fixture.drivers.find((item) => item.code === selectedDriverCode) ?? fixture.drivers[0]!;
   const segment = fixture.segments.find((item) => item.id === selectedSegmentId) ?? fixture.segments[0]!;
-  const reference = segmentSamples(driver, segment);
+  const reference = useMemo(() => segmentSamples(driver, segment), [driver, segment]);
   const key = leaderboardKey(fixture, driver, segment);
   const currentBoard = sortedLeaderboard(leaderboard, key);
   const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
@@ -1217,7 +1297,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
       <StepChrome
         eyebrow="04 · Ready"
         title="Your feet vs. theirs."
-        italic={`${driver.name}. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
+        italic={`${flagForEvent(fixture.event)} ${fixture.name}. ${driver.name}. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
         onBack={() => setScreen("segment")}
         onNext={() => {
           primeAudio();

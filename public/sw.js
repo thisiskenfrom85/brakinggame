@@ -1,17 +1,30 @@
-const CACHE_NAME = "braketrace-v5";
+const CACHE_NAME = "braketrace-v6";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
   "/data/fixtures-2025-manifest.json",
+  "/assets/drivers/ALB.webp",
   "/assets/drivers/ALO.webp",
+  "/assets/drivers/ANT.webp",
+  "/assets/drivers/BEA.webp",
+  "/assets/drivers/BOR.webp",
+  "/assets/drivers/COL.webp",
+  "/assets/drivers/DOO.webp",
+  "/assets/drivers/GAS.webp",
+  "/assets/drivers/HAD.webp",
   "/assets/drivers/HAM.webp",
+  "/assets/drivers/HUL.webp",
+  "/assets/drivers/LAW.webp",
   "/assets/drivers/LEC.webp",
   "/assets/drivers/NOR.webp",
+  "/assets/drivers/OCO.webp",
   "/assets/drivers/PIA.webp",
   "/assets/drivers/RUS.webp",
   "/assets/drivers/SAI.webp",
+  "/assets/drivers/STR.webp",
+  "/assets/drivers/TSU.webp",
   "/assets/drivers/VER.webp"
 ];
 

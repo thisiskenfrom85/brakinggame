@@ -275,6 +275,7 @@ button {
   cursor: pointer;
   min-height: 160px;
   padding: 22px;
+  position: relative;
   text-align: left;
   transition: border 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
@@ -294,6 +295,14 @@ button {
   height: 3px;
   background: var(--choice-accent);
   margin-bottom: 24px;
+}
+
+.choice-flag {
+  font-size: 25px;
+  line-height: 1;
+  position: absolute;
+  right: 20px;
+  top: 19px;
 }
 
 .choice-visual {
@@ -330,17 +339,17 @@ button {
 
 .track-line-base {
   stroke: rgba(45, 45, 52, 0.16);
-  stroke-width: 18;
+  stroke-width: 10;
 }
 
 .track-line-highlight-halo {
   stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 26;
+  stroke-width: 14;
 }
 
 .track-line-highlight {
   stroke: var(--segment-accent, var(--accent));
-  stroke-width: 12;
+  stroke-width: 6;
 }
 
 .driver-thumb {
@@ -390,11 +399,14 @@ button {
 
 .choice strong {
   display: block;
-  font-size: 25px;
+  font-size: 20px;
   font-weight: 900;
   line-height: 1;
   margin: 10px 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .choice small {
@@ -555,6 +567,8 @@ button {
 
 .run-control {
   align-self: center;
+  display: flex;
+  gap: 10px;
 }
 
 .run-footer .run-hint {
