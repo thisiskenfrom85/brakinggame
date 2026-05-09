@@ -139,17 +139,20 @@ function primeAudio() {
   const ctx = getSharedAudioContext();
   if (!ctx) return Promise.resolve(false);
 
-  return ctx.resume().then(() => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "square";
-    osc.frequency.value = 96;
-    gain.gain.value = 0.0001;
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.03);
-    return true;
-  }).catch(() => false);
+  return ctx.resume()
+    .then(() => loadEngineBuffer(ctx))
+    .then(() => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 96;
+      gain.gain.value = 0.0001;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.03);
+      return true;
+    })
+    .catch(() => false);
 }
 
 function formatLap(seconds: number) {
@@ -889,8 +892,9 @@ function RunScreen({
   const [run, setRun] = useState<RunSample[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [audioState, setAudioState] = useState<"starting" | "running" | "suspended" | "unavailable">("starting");
+  const [audioState, setAudioState] = useState<"loading" | "running" | "suspended" | "unavailable">("loading");
   const pausedRef = useRef(false);
+  const audioReadyRef = useRef(false);
   const elapsedRef = useRef(0);
   const lastFrameAt = useRef<number | null>(null);
   const lastPaintAt = useRef(0);
@@ -937,6 +941,7 @@ function RunScreen({
   useEffect(() => {
     const ctx = getSharedAudioContext();
     let audioCancelled = false;
+    audioReadyRef.current = false;
     if (ctx) {
       ctx.resume().then(() => setAudioState(displayAudioState(ctx))).catch(() => {
         setAudioState("suspended");
@@ -956,9 +961,9 @@ function RunScreen({
           brake.type = "triangle";
           engineGain.gain.value = 0.0001;
           brakeGain.gain.value = 0.0001;
-          masterGain.gain.value = 0.92;
+          masterGain.gain.value = 1;
           filter.type = "lowpass";
-          filter.frequency.value = 2200;
+          filter.frequency.value = 2800;
           filter.Q.value = 0.75;
           engine.connect(engineGain).connect(filter);
           brake.connect(brakeGain).connect(filter);
@@ -966,13 +971,16 @@ function RunScreen({
           engine.start();
           brake.start();
           audioRef.current = { ctx, engine, brake, engineGain, brakeGain, masterGain, filter };
+          audioReadyRef.current = true;
           setAudioState(displayAudioState(ctx));
         })
         .catch(() => {
           audioRef.current = null;
-          setAudioState("suspended");
+          audioReadyRef.current = true;
+          setAudioState("unavailable");
         });
     } else {
+      audioReadyRef.current = true;
       setAudioState("unavailable");
     }
 
@@ -982,7 +990,7 @@ function RunScreen({
       const delta = Math.min(0.08, Math.max(0, (now - lastFrameAt.current) / 1000));
       lastFrameAt.current = now;
 
-      if (!pausedRef.current) {
+      if (!pausedRef.current && audioReadyRef.current) {
         elapsedRef.current += delta;
       }
 
@@ -1010,14 +1018,14 @@ function RunScreen({
         const brakeLoad = currentPedals.brake;
         const rpmLoad = clamp(ref.rpm / 12000, 0.18, 1);
         const playbackRate = clamp(0.58 + rpmLoad * 1.12 + throttleLoad * 0.22 - brakeLoad * 0.08, 0.55, 1.85);
-        const engineLevel = pausedRef.current ? 0.0001 : 0.12 + throttleLoad * 0.58;
-        const filterFrequency = 850 + rpmLoad * 4200 + throttleLoad * 2600 - brakeLoad * 700;
+        const engineLevel = pausedRef.current ? 0.0001 : 0.28 + throttleLoad * 0.72;
+        const filterFrequency = 1100 + rpmLoad * 4600 + throttleLoad * 3200 - brakeLoad * 650;
         const nowAudio = audioRef.current.ctx.currentTime;
         audioRef.current.engine.playbackRate.setTargetAtTime(playbackRate, nowAudio, 0.04);
-        audioRef.current.filter.frequency.setTargetAtTime(clamp(filterFrequency, 650, 7600), nowAudio, 0.05);
+        audioRef.current.filter.frequency.setTargetAtTime(clamp(filterFrequency, 850, 9000), nowAudio, 0.05);
         audioRef.current.brake.frequency.setTargetAtTime(90 + brakeLoad * 120 + ref.gear * 12, nowAudio, 0.04);
         audioRef.current.engineGain.gain.setTargetAtTime(engineLevel, nowAudio, 0.04);
-        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.045, nowAudio, 0.04);
+        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.075, nowAudio, 0.04);
       }
 
       if (t >= duration && !completedRef.current) {
@@ -1069,7 +1077,7 @@ function RunScreen({
       </header>
       <section className="stage">
         <div className="run-command">
-          <Eyebrow tag>{paused ? "Paused" : prompt}</Eyebrow>
+          <Eyebrow tag>{audioState === "loading" ? "Engine loading" : paused ? "Paused" : prompt}</Eyebrow>
         </div>
         <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} />
       </section>
@@ -1082,7 +1090,7 @@ function RunScreen({
             Quit
           </Button>
           <Button variant="ghost" onClick={armAudio}>
-            Sound {audioState}
+            Engine {audioState}
           </Button>
         </div>
         <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
