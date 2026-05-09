@@ -175,9 +175,10 @@ class TrackAudioController {
     this.audio.playbackRate = this.playbackRate();
     this.audio.volume = this.volume;
     try {
-      await this.audio.play();
+      const playPromise = this.audio.play();
       this.hasStarted = true;
       this.state = "running";
+      await playPromise;
     } catch {
       this.state = "blocked";
     }
@@ -1143,6 +1144,7 @@ function RunScreen({
   const [run, setRun] = useState<RunSample[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [runArmed, setRunArmed] = useState(false);
   const [audioState, setAudioState] = useState<EngineAudioState>("idle");
   const pausedRef = useRef(false);
   const audioReadyRef = useRef(false);
@@ -1165,16 +1167,15 @@ function RunScreen({
 
   const armAudio = useCallback(() => {
     const controller = audioRef.current;
+    audioReadyRef.current = true;
+    setRunArmed(true);
     if (!controller) {
       setAudioState("unavailable");
       return;
     }
     controller.start().then(() => {
-      const running = controller.state === "running";
-      audioReadyRef.current = running || controller.state === "unavailable";
       setAudioState(controller.state);
     }).catch(() => {
-      audioReadyRef.current = false;
       setAudioState("blocked");
     });
   }, []);
@@ -1259,6 +1260,15 @@ function RunScreen({
 
   const ref = sampleAt(reference, elapsed);
   const prompt = ref.brake > 0.5 ? "Brake" : ref.throttle > 50 ? "Throttle" : "Release";
+  const command = audioState === "loading"
+    ? "Audio loading"
+    : !runArmed && (audioState === "ready" || audioState === "blocked")
+      ? "Tap to start run"
+      : audioState === "blocked"
+        ? "Audio blocked"
+        : paused
+          ? "Paused"
+          : prompt;
 
   return (
     <main className="run-screen">
@@ -1272,9 +1282,9 @@ function RunScreen({
       </header>
       <section className="stage">
         <div className="run-command">
-          <Eyebrow tag>{audioState === "loading" ? "Audio loading" : audioState === "ready" || audioState === "blocked" ? "Tap to start run" : paused ? "Paused" : prompt}</Eyebrow>
+          <Eyebrow tag>{command}</Eyebrow>
         </div>
-        {audioState === "ready" || audioState === "blocked" ? (
+        {!runArmed && (audioState === "ready" || audioState === "blocked") ? (
           <button className="audio-unlock" onClick={armAudio}>
             Tap to start run
           </button>
