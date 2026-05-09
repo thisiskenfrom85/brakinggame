@@ -6,6 +6,18 @@ import "./styles.css";
 const LEADERBOARD_KEY = "braketrace.leaderboard.v1";
 const CALIBRATION_KEY = "braketrace.calibration.v1";
 const IDLE_MS = 90_000;
+const SHANGHAI_TRACK_IMAGE = "/assets/tracks/shanghai-f1.webp";
+const DRIVER_IMAGE_BASE = "/assets/drivers";
+const TRACK_MAP_CROPS: Record<string, { scale: number; x: string; y: string }> = {
+  t1: { scale: 2.8, x: "48%", y: "12%" },
+  "t1-t4": { scale: 2.25, x: "46%", y: "18%" },
+  t6: { scale: 2.7, x: "82%", y: "28%" },
+  "t11-t13": { scale: 2.4, x: "80%", y: "70%" },
+  t14: { scale: 2.6, x: "15%", y: "82%" },
+  full: { scale: 1, x: "50%", y: "50%" }
+};
+
+let sharedAudioContext: AudioContext | null = null;
 
 type Screen = "attract" | "track" | "driver" | "corner" | "ready" | "run" | "result" | "leaderboard" | "calibration";
 type Calibration = {
@@ -30,6 +42,34 @@ const defaultCalibration: Calibration = {
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value));
+}
+
+function audioContextConstructor() {
+  return window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+}
+
+function getSharedAudioContext() {
+  const AudioCtx = audioContextConstructor();
+  if (!AudioCtx) return null;
+  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+    sharedAudioContext = new AudioCtx();
+  }
+  return sharedAudioContext;
+}
+
+function primeAudio() {
+  const ctx = getSharedAudioContext();
+  if (!ctx) return;
+  ctx.resume().catch(() => undefined);
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "square";
+  osc.frequency.value = 96;
+  gain.gain.value = 0.0001;
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.03);
 }
 
 function formatLap(seconds: number) {
@@ -335,47 +375,37 @@ function ChoiceGrid<T extends string>({
 
 function TrackMap({
   segment,
-  totalDistance,
   label
 }: {
   segment?: Segment;
   totalDistance: number;
   label?: string;
 }) {
-  const start = segment && segment.type !== "full" ? clamp(segment.startDistance / totalDistance, 0, 1) * 100 : 0;
-  const end = segment && segment.type !== "full" ? clamp(segment.endDistance / totalDistance, 0, 1) * 100 : 100;
-  const dash = Math.max(2, end - start);
-  const gap = Math.max(0, 100 - dash);
+  const crop = TRACK_MAP_CROPS[segment?.id ?? "full"] ?? TRACK_MAP_CROPS.full;
 
   return (
-    <svg className="track-map" viewBox="0 0 220 132" role="img" aria-label={label ?? "Track map"}>
-      <path
-        pathLength="100"
-        d="M31 77 C33 37 74 18 111 25 C137 30 139 53 121 61 C101 71 73 58 83 43 C93 27 142 25 170 41 C198 57 201 91 178 108 C145 132 83 116 55 103 C40 96 30 88 31 77 Z"
-      />
-      <path
-        className="track-map-highlight"
-        pathLength="100"
-        strokeDasharray={`${dash} ${gap}`}
-        strokeDashoffset={-start}
-        d="M31 77 C33 37 74 18 111 25 C137 30 139 53 121 61 C101 71 73 58 83 43 C93 27 142 25 170 41 C198 57 201 91 178 108 C145 132 83 116 55 103 C40 96 30 88 31 77 Z"
-      />
-    </svg>
+    <span
+      className={`track-map-wrap ${segment?.type === "full" ? "is-full" : "is-crop"}`}
+      role="img"
+      aria-label={label ?? "Track map"}
+      style={
+        {
+          "--map-scale": crop.scale,
+          "--map-x": crop.x,
+          "--map-y": crop.y
+        } as React.CSSProperties
+      }
+    >
+      <img src={SHANGHAI_TRACK_IMAGE} alt="" />
+    </span>
   );
 }
 
 function DriverThumb({ driver }: { driver: DriverTrace }) {
-  const initials = driver.name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2);
-
   return (
     <span className="driver-thumb" style={{ "--driver-accent": driver.color } as React.CSSProperties}>
-      <span>{driver.number}</span>
-      <strong>{initials}</strong>
-      <small>{driver.code}</small>
+      <img src={`${DRIVER_IMAGE_BASE}/${driver.code}.jpg`} alt={driver.name} />
+      <span>{driver.code}</span>
     </span>
   );
 }
@@ -601,10 +631,10 @@ function RunScreen({
   }, [paused]);
 
   useEffect(() => {
-    const AudioCtx = window.AudioContext;
-    if (AudioCtx) {
+    const ctx = getSharedAudioContext();
+    if (ctx) {
       try {
-        const ctx = new AudioCtx();
+        ctx.resume().catch(() => undefined);
         const engine = ctx.createOscillator();
         const brake = ctx.createOscillator();
         const engineGain = ctx.createGain();
@@ -659,8 +689,8 @@ function RunScreen({
         const nowAudio = audioRef.current.ctx.currentTime;
         audioRef.current.engine.frequency.setTargetAtTime(frequency, nowAudio, 0.03);
         audioRef.current.brake.frequency.setTargetAtTime(90 + brakeLoad * 120 + ref.gear * 12, nowAudio, 0.04);
-        audioRef.current.engineGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : 0.014 + throttleLoad * 0.055, nowAudio, 0.04);
-        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.04, nowAudio, 0.04);
+        audioRef.current.engineGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : 0.035 + throttleLoad * 0.11, nowAudio, 0.04);
+        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.075, nowAudio, 0.04);
       }
 
       if (t >= duration && !completedRef.current) {
@@ -682,10 +712,14 @@ function RunScreen({
           audioRef.current.brakeGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
           audioRef.current.engine.stop(audioRef.current.ctx.currentTime + 0.05);
           audioRef.current.brake.stop(audioRef.current.ctx.currentTime + 0.05);
-          audioRef.current.ctx.close().catch(() => undefined);
+          audioRef.current.engine.disconnect();
+          audioRef.current.brake.disconnect();
+          audioRef.current.engineGain.disconnect();
+          audioRef.current.brakeGain.disconnect();
         } catch {
-          audioRef.current.ctx.close().catch(() => undefined);
+          // The nodes may already be stopped by the browser during teardown.
         }
+        audioRef.current = null;
       }
     };
   }, [duration, onComplete, reference]);
@@ -1091,7 +1125,10 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
         title="Your feet vs. theirs."
         italic={`${driver.name}. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
         onBack={() => setScreen("corner")}
-        onNext={() => setScreen("run")}
+        onNext={() => {
+          primeAudio();
+          setScreen("run");
+        }}
         nextLabel="Start run"
         nextProminent
       >

@@ -1,5 +1,20 @@
-const CACHE_NAME = "braketrace-v1";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/data/chinese-gp-qualifying.json"];
+const CACHE_NAME = "braketrace-v2";
+const APP_SHELL = [
+  "/",
+  "/index.html",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/data/chinese-gp-qualifying.json",
+  "/assets/tracks/shanghai-f1.webp",
+  "/assets/drivers/ALO.jpg",
+  "/assets/drivers/HAM.jpg",
+  "/assets/drivers/LEC.jpg",
+  "/assets/drivers/NOR.jpg",
+  "/assets/drivers/PIA.jpg",
+  "/assets/drivers/RUS.jpg",
+  "/assets/drivers/SAI.jpg",
+  "/assets/drivers/VER.jpg"
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
