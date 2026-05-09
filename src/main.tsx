@@ -188,6 +188,10 @@ class TrackAudioController {
       this.state = "unavailable";
       return;
     }
+    if (!this.hasStarted) {
+      await this.start();
+      return;
+    }
     try {
       await this.audio.play();
       this.hasStarted = true;
@@ -1165,7 +1169,7 @@ function RunScreen({
       setAudioState("unavailable");
       return;
     }
-    controller.resume().then(() => {
+    controller.start().then(() => {
       const running = controller.state === "running";
       audioReadyRef.current = running || controller.state === "unavailable";
       setAudioState(controller.state);
@@ -1183,11 +1187,9 @@ function RunScreen({
       audioRef.current = controller;
       setAudioState("loading");
       controller.load()
-        .then(() => controller.start())
         .then(() => {
           if (audioCancelled) return;
-          const running = controller.state === "running";
-          audioReadyRef.current = running;
+          audioReadyRef.current = false;
           setAudioState(controller.state);
         })
         .catch(() => {
@@ -1270,11 +1272,11 @@ function RunScreen({
       </header>
       <section className="stage">
         <div className="run-command">
-          <Eyebrow tag>{audioState === "loading" ? "Audio loading" : audioState === "blocked" ? "Tap to enable audio" : paused ? "Paused" : prompt}</Eyebrow>
+          <Eyebrow tag>{audioState === "loading" ? "Audio loading" : audioState === "ready" || audioState === "blocked" ? "Tap to start run" : paused ? "Paused" : prompt}</Eyebrow>
         </div>
-        {audioState === "blocked" ? (
+        {audioState === "ready" || audioState === "blocked" ? (
           <button className="audio-unlock" onClick={armAudio}>
-            Tap to enable audio
+            Tap to start run
           </button>
         ) : null}
         <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} />
