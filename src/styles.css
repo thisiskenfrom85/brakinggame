@@ -306,14 +306,14 @@ button {
 
 .track-map-wrap {
   aspect-ratio: 1.58;
+  background: #050507;
+  border: 1px solid rgba(45, 45, 52, 0.16);
+  border-radius: 8px;
   display: block;
   margin: 0 auto;
   overflow: hidden;
   position: relative;
   width: min(250px, 100%);
-  background: #050507;
-  border: 1px solid rgba(45, 45, 52, 0.16);
-  border-radius: 8px;
 }
 
 .track-map-wrap img {
@@ -326,23 +326,13 @@ button {
   width: 100%;
 }
 
-.track-map-wrap.is-crop::after {
-  background: var(--choice-accent, var(--accent));
-  content: "";
-  height: 4px;
-  left: 16px;
-  position: absolute;
-  right: 16px;
-  top: 14px;
-}
-
 .driver-thumb {
-  background: #111116;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), var(--driver-accent)), #111116;
   border: 1px solid rgba(45, 45, 52, 0.18);
   border-radius: 8px;
   color: #fff;
   display: block;
-  height: 150px;
+  height: 168px;
   overflow: hidden;
   position: relative;
   width: 100%;
@@ -350,10 +340,10 @@ button {
 
 .driver-thumb img {
   display: block;
-  filter: saturate(0.95) contrast(1.04);
+  filter: saturate(1.03) contrast(1.02);
   height: 100%;
-  object-fit: cover;
-  object-position: center 18%;
+  object-fit: contain;
+  object-position: center bottom;
   width: 100%;
 }
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "braketrace-v2";
+const CACHE_NAME = "braketrace-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -6,14 +6,14 @@ const APP_SHELL = [
   "/icon.svg",
   "/data/chinese-gp-qualifying.json",
   "/assets/tracks/shanghai-f1.webp",
-  "/assets/drivers/ALO.jpg",
-  "/assets/drivers/HAM.jpg",
-  "/assets/drivers/LEC.jpg",
-  "/assets/drivers/NOR.jpg",
-  "/assets/drivers/PIA.jpg",
-  "/assets/drivers/RUS.jpg",
-  "/assets/drivers/SAI.jpg",
-  "/assets/drivers/VER.jpg"
+  "/assets/drivers/ALO.webp",
+  "/assets/drivers/HAM.webp",
+  "/assets/drivers/LEC.webp",
+  "/assets/drivers/NOR.webp",
+  "/assets/drivers/PIA.webp",
+  "/assets/drivers/RUS.webp",
+  "/assets/drivers/SAI.webp",
+  "/assets/drivers/VER.webp"
 ];
 
 self.addEventListener("install", (event) => {

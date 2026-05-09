@@ -9,11 +9,11 @@ const IDLE_MS = 90_000;
 const SHANGHAI_TRACK_IMAGE = "/assets/tracks/shanghai-f1.webp";
 const DRIVER_IMAGE_BASE = "/assets/drivers";
 const TRACK_MAP_CROPS: Record<string, { scale: number; x: string; y: string }> = {
-  t1: { scale: 2.8, x: "48%", y: "12%" },
-  "t1-t4": { scale: 2.25, x: "46%", y: "18%" },
-  t6: { scale: 2.7, x: "82%", y: "28%" },
-  "t11-t13": { scale: 2.4, x: "80%", y: "70%" },
-  t14: { scale: 2.6, x: "15%", y: "82%" },
+  t1: { scale: 2.35, x: "45%", y: "16%" },
+  "t1-t4": { scale: 1.95, x: "47%", y: "20%" },
+  t6: { scale: 2.45, x: "82%", y: "27%" },
+  "t11-t13": { scale: 2.15, x: "80%", y: "69%" },
+  t14: { scale: 2.45, x: "14%", y: "82%" },
   full: { scale: 1, x: "50%", y: "50%" }
 };
 
@@ -404,7 +404,7 @@ function TrackMap({
 function DriverThumb({ driver }: { driver: DriverTrace }) {
   return (
     <span className="driver-thumb" style={{ "--driver-accent": driver.color } as React.CSSProperties}>
-      <img src={`${DRIVER_IMAGE_BASE}/${driver.code}.jpg`} alt={driver.name} />
+      <img src={`${DRIVER_IMAGE_BASE}/${driver.code}.webp`} alt={driver.name} />
       <span>{driver.code}</span>
     </span>
   );
