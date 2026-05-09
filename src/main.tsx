@@ -18,7 +18,12 @@ const CALIBRATION_KEY = "braketrace.calibration.v1";
 const AUDIO_VOLUME_KEY = "braketrace.audioVolume.v1";
 const IDLE_MS = 90_000;
 const DRIVER_IMAGE_BASE = "/assets/drivers";
-const ENGINE_AUDIO_PATH = "/assets/audio/engine-loop.m4a";
+const TRACK_AUDIO: Record<string, { path: string; label: string }> = {
+  "2025-chinese-grand-prix-qualifying": {
+    path: "/assets/audio/shanghai.m4a",
+    label: "Shanghai full-lap audio"
+  }
+};
 const SEGMENT_ACCENTS = ["#f06aa7", "#ffc300", "#58c7ff", "#65df9c", "#8e7cff", "#ff8a5c", "#7dd3fc"];
 const PS4_L2_BUTTON = 6;
 const PS4_R2_BUTTON = 7;
@@ -76,10 +81,6 @@ const TRACK_CONTINENTS: Record<string, string> = {
 };
 const CONTINENT_ORDER = ["Americas", "Europe", "Asia", "Oceania"];
 
-let sharedAudioContext: AudioContext | null = null;
-const engineBufferCache = new WeakMap<AudioContext, Promise<AudioBuffer>>();
-const processedEngineCache = new WeakMap<AudioContext, Promise<ProcessedEngineLoop>>();
-
 type Screen = "attract" | "track" | "driver" | "segment" | "ready" | "run" | "result" | "leaderboard" | "calibration";
 type EngineAudioState = "idle" | "loading" | "ready" | "running" | "blocked" | "unavailable";
 type Calibration = {
@@ -104,303 +105,144 @@ const defaultCalibration: Calibration = {
   deadZone: 0.04
 };
 
-type ProcessedEngineLoop = {
-  buffer: AudioBuffer;
-  duration: number;
-  sourceDuration: number;
+type TrackAudioWindow = {
+  path: string;
+  label: string;
   startTime: number;
   endTime: number;
-  peak: number;
+  lapTime: number;
+  playbackRate: number;
 };
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value));
 }
 
-function audioContextConstructor() {
-  return window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-}
-
-function getSharedAudioContext() {
-  const AudioCtx = audioContextConstructor();
-  if (!AudioCtx) return null;
-  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
-    sharedAudioContext = new AudioCtx();
-  }
-  return sharedAudioContext;
-}
-
-function loadEngineBuffer(ctx: AudioContext) {
-  const cached = engineBufferCache.get(ctx);
-  if (cached) return cached;
-  const pending = fetch(ENGINE_AUDIO_PATH)
-    .then((response) => {
-      if (!response.ok) throw new Error(`Engine audio failed: ${response.status}`);
-      return response.arrayBuffer();
-    })
-    .then((data) => ctx.decodeAudioData(data));
-  engineBufferCache.set(ctx, pending);
-  return pending;
-}
-
-function displayAudioState(ctx: AudioContext): EngineAudioState {
-  return ctx.state === "running" ? "running" : "blocked";
-}
-
-function buildProcessedEngineLoop(ctx: AudioContext, source: AudioBuffer): ProcessedEngineLoop {
-  const sampleRate = source.sampleRate;
-  const channels = source.numberOfChannels;
-  const totalFrames = source.length;
-  const windowSize = Math.min(Math.max(1024, Math.round(sampleRate * 0.045)), 4096);
-  const hop = Math.max(256, Math.round(windowSize / 4));
-  const analysisStart = Math.min(Math.round(sampleRate * 0.35), Math.max(0, totalFrames - windowSize));
-  const analysisEnd = Math.max(analysisStart + windowSize, totalFrames - Math.round(sampleRate * 0.35));
-  const mono = source.getChannelData(0);
-  const levels: { start: number; rms: number }[] = [];
-
-  for (let start = analysisStart; start + windowSize < analysisEnd; start += hop) {
-    let sum = 0;
-    for (let index = 0; index < windowSize; index += 1) {
-      const sample = mono[start + index] ?? 0;
-      sum += sample * sample;
-    }
-    levels.push({ start, rms: Math.sqrt(sum / windowSize) });
-  }
-
-  const targetFrames = Math.min(
-    Math.max(Math.round(sampleRate * 1.8), Math.round(totalFrames * 0.18)),
-    Math.round(sampleRate * 3.2),
-    Math.max(windowSize * 2, totalFrames - analysisStart)
-  );
-  const spanWindows = Math.max(3, Math.round(targetFrames / hop));
-  let bestStart = analysisStart;
-  let bestScore = -Infinity;
-
-  for (let index = 0; index + spanWindows < levels.length; index += 1) {
-    const slice = levels.slice(index, index + spanWindows);
-    const avg = slice.reduce((sum, item) => sum + item.rms, 0) / slice.length;
-    const variance = slice.reduce((sum, item) => sum + (item.rms - avg) ** 2, 0) / slice.length;
-    const stabilityPenalty = Math.sqrt(variance) * 0.85;
-    const edgePenalty = index < 4 || index + spanWindows > levels.length - 4 ? avg * 0.12 : 0;
-    const score = avg - stabilityPenalty - edgePenalty;
-    if (score > bestScore) {
-      bestScore = score;
-      bestStart = levels[index].start;
-    }
-  }
-
-  const loopFrames = Math.min(targetFrames, totalFrames - bestStart);
-  const fadeFrames = Math.min(Math.round(sampleRate * 0.09), Math.round(loopFrames * 0.18));
-  const outputFrames = Math.max(windowSize, loopFrames - fadeFrames);
-  const output = ctx.createBuffer(channels, outputFrames, sampleRate);
-  let peak = 0.001;
-
-  for (let channel = 0; channel < channels; channel += 1) {
-    const input = source.getChannelData(channel);
-    const outputData = output.getChannelData(channel);
-    for (let index = 0; index < outputFrames; index += 1) {
-      let sample = input[bestStart + index] ?? 0;
-      const fadeIndex = index - (outputFrames - fadeFrames);
-      if (fadeIndex >= 0) {
-        const ratio = fadeIndex / Math.max(1, fadeFrames - 1);
-        const endGain = Math.cos(ratio * Math.PI * 0.5);
-        const startGain = Math.sin(ratio * Math.PI * 0.5);
-        const startSample = input[bestStart + fadeIndex] ?? 0;
-        sample = sample * endGain + startSample * startGain;
-      }
-      outputData[index] = sample;
-      peak = Math.max(peak, Math.abs(sample));
-    }
-  }
-
-  const normalizeGain = Math.min(2.8, 0.72 / peak);
-  for (let channel = 0; channel < channels; channel += 1) {
-    const outputData = output.getChannelData(channel);
-    for (let index = 0; index < outputData.length; index += 1) {
-      outputData[index] *= normalizeGain;
-    }
-  }
-
-  return {
-    buffer: output,
-    duration: output.duration,
-    sourceDuration: source.duration,
-    startTime: bestStart / sampleRate,
-    endTime: (bestStart + loopFrames) / sampleRate,
-    peak: peak * normalizeGain
-  };
-}
-
-function loadProcessedEngineLoop(ctx: AudioContext) {
-  const cached = processedEngineCache.get(ctx);
-  if (cached) return cached;
-  const pending = loadEngineBuffer(ctx).then((buffer) => buildProcessedEngineLoop(ctx, buffer));
-  processedEngineCache.set(ctx, pending);
-  return pending;
-}
-
-class EngineAudioController {
-  readonly ctx: AudioContext;
+class TrackAudioController {
   state: EngineAudioState = "idle";
-  loop: ProcessedEngineLoop | null = null;
-  private source: AudioBufferSourceNode | null = null;
-  private accent: AudioBufferSourceNode | null = null;
-  private inputGain: GainNode;
-  private accentGain: GainNode;
-  private filter: BiquadFilterNode;
-  private masterGain: GainNode;
-  private lastGear: number | null = null;
+  readonly audio: HTMLAudioElement;
   private volume = 0.85;
+  private window: TrackAudioWindow | null;
+  private hasStarted = false;
 
-  constructor(ctx: AudioContext, volume: number) {
-    this.ctx = ctx;
+  constructor(window: TrackAudioWindow | null, volume: number) {
+    this.window = window;
     this.volume = volume;
-    this.inputGain = ctx.createGain();
-    this.accentGain = ctx.createGain();
-    this.filter = ctx.createBiquadFilter();
-    this.masterGain = ctx.createGain();
-    this.inputGain.gain.value = 0.0001;
-    this.accentGain.gain.value = 0.0001;
-    this.filter.type = "lowpass";
-    this.filter.frequency.value = 2600;
-    this.filter.Q.value = 0.55;
-    this.masterGain.gain.value = volume;
-    this.inputGain.connect(this.filter);
-    this.accentGain.connect(this.filter);
-    this.filter.connect(this.masterGain).connect(ctx.destination);
+    this.audio = new Audio(window?.path ?? "");
+    this.audio.preload = "auto";
+    this.audio.volume = volume;
   }
 
   async load() {
+    if (!this.window) {
+      this.state = "unavailable";
+      return;
+    }
     this.state = "loading";
-    this.loop = await loadProcessedEngineLoop(this.ctx);
-    this.state = this.ctx.state === "running" ? "ready" : "blocked";
+    await new Promise<void>((resolve, reject) => {
+      if (this.audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        resolve();
+        return;
+      }
+      const cleanup = () => {
+        this.audio.removeEventListener("loadedmetadata", onReady);
+        this.audio.removeEventListener("canplaythrough", onReady);
+        this.audio.removeEventListener("error", onError);
+      };
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("Track audio failed to load."));
+      };
+      this.audio.addEventListener("loadedmetadata", onReady, { once: true });
+      this.audio.addEventListener("canplaythrough", onReady, { once: true });
+      this.audio.addEventListener("error", onError, { once: true });
+      this.audio.load();
+    });
+    this.state = "ready";
   }
 
   async start() {
-    if (!this.loop) await this.load();
-    if (this.ctx.state !== "running") await this.ctx.resume();
-    if (this.ctx.state !== "running") {
-      this.state = "blocked";
+    if (!this.window) {
+      this.state = "unavailable";
       return;
     }
-    if (!this.source && this.loop) {
-      const source = this.ctx.createBufferSource();
-      source.buffer = this.loop.buffer;
-      source.loop = true;
-      source.playbackRate.value = 1;
-      source.connect(this.inputGain);
-      source.start();
-      this.source = source;
+    if (this.state === "idle") await this.load();
+    this.audio.currentTime = this.clipTimeForLapTime(this.window.startTime);
+    this.audio.playbackRate = this.playbackRate();
+    this.audio.volume = this.volume;
+    try {
+      await this.audio.play();
+      this.hasStarted = true;
+      this.state = "running";
+    } catch {
+      this.state = "blocked";
     }
-    this.state = "running";
   }
 
   async resume() {
-    if (this.ctx.state !== "running") await this.ctx.resume();
-    if (!this.source) await this.start();
-    this.state = this.ctx.state === "running" ? "running" : "blocked";
+    if (!this.window) {
+      this.state = "unavailable";
+      return;
+    }
+    try {
+      await this.audio.play();
+      this.hasStarted = true;
+      this.state = "running";
+    } catch {
+      this.state = "blocked";
+    }
   }
 
   setVolume(volume: number) {
     this.volume = clamp(volume, 0, 1);
-    this.masterGain.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
+    this.audio.volume = this.volume;
   }
 
-  update(sample: Sample, pedals: { brake: number; throttle: number }, paused: boolean) {
-    if (!this.source || this.state !== "running") return;
-    const now = this.ctx.currentTime;
-    const referenceThrottle = sample.throttle / 100;
-    const userThrottleInfluence = (pedals.throttle - referenceThrottle) * 0.14;
-    const throttle = clamp(referenceThrottle + userThrottleInfluence);
-    const brake = clamp(Math.max(pedals.brake * 0.55, sample.brake * 0.4));
-    const rpmLoad = clamp((sample.rpm - 4500) / 7600, 0, 1);
-    const rate = paused ? 0.92 : clamp(0.85 + rpmLoad * 0.34 + throttle * 0.03 - brake * 0.04, 0.84, 1.22);
-    const level = paused ? 0.0001 : clamp(0.18 + throttle * 0.48 + rpmLoad * 0.18 - brake * 0.14, 0.07, 0.76);
-    const cutoff = paused ? 900 : clamp(1050 + rpmLoad * 3400 + throttle * 2200 - brake * 950, 850, 6800);
-
-    this.source.playbackRate.setTargetAtTime(rate, now, 0.09);
-    this.inputGain.gain.setTargetAtTime(level, now, 0.08);
-    this.filter.frequency.setTargetAtTime(cutoff, now, 0.1);
-
-    if (!paused && this.loop && this.lastGear !== null && sample.gear < this.lastGear) {
-      this.playDownshift(sample, rate);
+  update(elapsed: number, paused: boolean) {
+    if (!this.window || !this.hasStarted) return;
+    if (paused) {
+      if (!this.audio.paused) this.audio.pause();
+      return;
     }
-    this.lastGear = sample.gear;
+    if (this.audio.paused && this.state === "running") {
+      void this.audio.play().catch(() => {
+        this.state = "blocked";
+      });
+    }
+    const target = this.clipTimeForLapTime(this.window.startTime + elapsed);
+    if (Math.abs(this.audio.currentTime - target) > 0.28) this.audio.currentTime = target;
+    if (this.audio.currentTime >= this.clipTimeForLapTime(this.window.endTime) - 0.04) this.audio.pause();
   }
 
   stop() {
-    const now = this.ctx.currentTime;
-    const source = this.source;
-    const accent = this.accent;
-    const inputGain = this.inputGain;
-    const accentGain = this.accentGain;
-    const filter = this.filter;
-    const masterGain = this.masterGain;
-    try {
-      inputGain.gain.setTargetAtTime(0.0001, now, 0.025);
-      accentGain.gain.setTargetAtTime(0.0001, now, 0.025);
-      source?.stop(now + 0.1);
-      accent?.stop(now + 0.1);
-      window.setTimeout(() => {
-        try {
-          source?.disconnect();
-          accent?.disconnect();
-          inputGain.disconnect();
-          accentGain.disconnect();
-          filter.disconnect();
-          masterGain.disconnect();
-        } catch {
-          // The graph may already be disconnected by the browser.
-        }
-      }, 130);
-    } catch {
-      // Browsers may already stop audio nodes during teardown.
-    }
-    this.source = null;
-    this.accent = null;
+    this.audio.pause();
+    this.audio.removeAttribute("src");
+    this.audio.load();
+    this.hasStarted = false;
     this.state = "idle";
   }
 
-  private playDownshift(sample: Sample, baseRate: number) {
-    if (!this.loop) return;
-    const now = this.ctx.currentTime;
-    try {
-      this.accent?.stop(now);
-    } catch {
-      // Ignore stale accent nodes.
-    }
-    const accent = this.ctx.createBufferSource();
-    accent.buffer = this.loop.buffer;
-    accent.loop = false;
-    accent.playbackRate.value = clamp(baseRate + 0.12 + sample.gear * 0.01, 0.9, 1.28);
-    accent.connect(this.accentGain);
-    this.accentGain.gain.cancelScheduledValues(now);
-    this.accentGain.gain.setValueAtTime(0.0001, now);
-    this.accentGain.gain.linearRampToValueAtTime(0.18, now + 0.035);
-    this.accentGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-    accent.start(now, 0, Math.min(0.32, this.loop.duration));
-    this.accent = accent;
+  private clipTimeForLapTime(lapTime: number) {
+    const duration = Number.isFinite(this.audio.duration) && this.audio.duration > 0
+      ? this.audio.duration
+      : this.window?.lapTime ?? 1;
+    return clamp(lapTime / (this.window?.lapTime ?? duration), 0, 1) * duration;
+  }
+
+  private playbackRate() {
+    const duration = Number.isFinite(this.audio.duration) && this.audio.duration > 0
+      ? this.audio.duration
+      : this.window?.lapTime ?? 1;
+    return clamp(duration / (this.window?.lapTime ?? duration), 0.96, 1.04);
   }
 }
 
 function primeAudio() {
-  const ctx = getSharedAudioContext();
-  if (!ctx) return Promise.resolve(false);
-
-  return ctx.resume()
-    .then(() => loadProcessedEngineLoop(ctx))
-    .then(() => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = 96;
-      gain.gain.value = 0.0001;
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.03);
-      return true;
-    })
-    .catch(() => false);
+  return Promise.resolve(true);
 }
 
 function formatLap(seconds: number) {
@@ -437,6 +279,41 @@ function segmentSamples(driver: DriverTrace, segment: Segment) {
     t: sample.t - first.t,
     distance: sample.distance - first.distance
   }));
+}
+
+function lapTimeAtDistance(driver: DriverTrace, distance: number) {
+  if (distance <= driver.samples[0].distance) return driver.samples[0].t;
+  const last = driver.samples[driver.samples.length - 1];
+  if (distance >= last.distance) return last.t;
+
+  let high = driver.samples.length - 1;
+  let low = 0;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (driver.samples[mid].distance < distance) low = mid + 1;
+    else high = mid;
+  }
+
+  const b = driver.samples[low];
+  const a = driver.samples[Math.max(0, low - 1)];
+  const span = Math.max(0.001, b.distance - a.distance);
+  const ratio = (distance - a.distance) / span;
+  return a.t + (b.t - a.t) * ratio;
+}
+
+function trackAudioWindow(fixture: TrackFixture, driver: DriverTrace, segment: Segment): TrackAudioWindow | null {
+  const audio = TRACK_AUDIO[fixture.id];
+  if (!audio) return null;
+  const lapTime = driver.samples[driver.samples.length - 1]?.t ?? driver.lapTime;
+  const startTime = segment.type === "full" ? 0 : lapTimeAtDistance(driver, segment.startDistance);
+  const endTime = segment.type === "full" ? lapTime : lapTimeAtDistance(driver, segment.endDistance);
+  return {
+    ...audio,
+    startTime,
+    endTime,
+    lapTime,
+    playbackRate: 1
+  };
 }
 
 type TrackMapSource = Pick<TrackFixture, "map" | "segments">;
@@ -920,6 +797,7 @@ function CalibrationScreen({
   setCalibration,
   audioVolume,
   setAudioVolume,
+  audioWindow,
   pedals,
   onDone
 }: {
@@ -927,6 +805,7 @@ function CalibrationScreen({
   setCalibration: (calibration: Calibration) => void;
   audioVolume: number;
   setAudioVolume: (volume: number) => void;
+  audioWindow: TrackAudioWindow | null;
   pedals: ReturnType<typeof useLivePedals>;
   onDone: () => void;
 }) {
@@ -1118,27 +997,32 @@ function CalibrationScreen({
             </label>
           </div>
         </div>
-        <AudioDiagnostics volume={audioVolume} setVolume={setAudioVolume} />
+        <AudioDiagnostics audioWindow={audioWindow} volume={audioVolume} setVolume={setAudioVolume} />
         {buttons.length ? <p className="small-copy">PS4 preset uses button 6 for L2 throttle and button 7 for R2 brake. The Ready screen pedal meters are the quickest test.</p> : null}
       </section>
     </main>
   );
 }
 
-function AudioDiagnostics({ volume, setVolume }: { volume: number; setVolume: (volume: number) => void }) {
-  const controllerRef = useRef<EngineAudioController | null>(null);
-  const intervalRef = useRef<number | null>(null);
-  const [state, setState] = useState<EngineAudioState>(() => {
-    const ctx = getSharedAudioContext();
-    return ctx ? (ctx.state === "running" ? "idle" : "blocked") : "unavailable";
-  });
-  const [loop, setLoop] = useState<ProcessedEngineLoop | null>(null);
-  const [message, setMessage] = useState("Ready to test.");
+function AudioDiagnostics({
+  audioWindow,
+  volume,
+  setVolume
+}: {
+  audioWindow: TrackAudioWindow | null;
+  volume: number;
+  setVolume: (volume: number) => void;
+}) {
+  const controllerRef = useRef<TrackAudioController | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+  const [state, setState] = useState<EngineAudioState>(audioWindow ? "idle" : "unavailable");
+  const [clipDuration, setClipDuration] = useState<number | null>(null);
+  const [message, setMessage] = useState(audioWindow ? "Ready to test the selected track audio." : "No bundled audio for this track yet.");
 
   const stopTest = useCallback(() => {
-    if (intervalRef.current !== null) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
     controllerRef.current?.stop();
     controllerRef.current = null;
@@ -1148,53 +1032,45 @@ function AudioDiagnostics({ volume, setVolume }: { volume: number; setVolume: (v
 
   useEffect(() => () => stopTest(), [stopTest]);
 
+  useEffect(() => {
+    stopTest();
+    setClipDuration(null);
+    setState(audioWindow ? "idle" : "unavailable");
+    setMessage(audioWindow ? "Ready to test the selected track audio." : "No bundled audio for this track yet.");
+  }, [audioWindow, stopTest]);
+
   const startTest = async () => {
     if (controllerRef.current) {
       stopTest();
       return;
     }
 
-    const ctx = getSharedAudioContext();
-    if (!ctx) {
+    if (!audioWindow) {
       setState("unavailable");
-      setMessage("WebAudio is not available in this browser.");
+      setMessage("No bundled audio for this track yet.");
       return;
     }
 
-    const controller = new EngineAudioController(ctx, volume);
+    const controller = new TrackAudioController(audioWindow, volume);
     controllerRef.current = controller;
     setState("loading");
-    setMessage("Loading bundled engine clip.");
+    setMessage("Loading bundled track audio.");
 
     try {
       await controller.load();
-      setLoop(controller.loop);
+      setClipDuration(Number.isFinite(controller.audio.duration) ? controller.audio.duration : null);
       await controller.start();
       setState(controller.state);
-      setMessage(controller.state === "running" ? "Engine test running." : "Tap test again if the browser blocked audio.");
-      const startedAt = performance.now();
-      intervalRef.current = window.setInterval(() => {
-        const t = (performance.now() - startedAt) / 1000;
-        const throttle = 0.45 + Math.sin(t * 1.6) * 0.32;
-        controller.update(
-          {
-            t,
-            distance: 0,
-            throttle: clamp(throttle) * 100,
-            brake: Math.sin(t * 0.75) > 0.68 ? 1 : 0,
-            speed: 160 + throttle * 100,
-            rpm: 6500 + clamp(throttle) * 4200,
-            gear: 4 + Math.round(clamp(throttle) * 3)
-          },
-          { brake: Math.sin(t * 0.75) > 0.68 ? 1 : 0, throttle: clamp(throttle) },
-          false
-        );
-      }, 80);
+      setMessage(controller.state === "running" ? "Track audio test running." : "Tap test again if the browser blocked audio.");
+      if (controller.state === "running") {
+        const duration = Math.max(1, audioWindow.endTime - audioWindow.startTime);
+        timeoutRef.current = window.setTimeout(stopTest, duration * 1000);
+      }
     } catch (error) {
       controller.stop();
       controllerRef.current = null;
       setState("unavailable");
-      setMessage(error instanceof Error ? error.message : "Engine audio failed to load.");
+      setMessage(error instanceof Error ? error.message : "Track audio failed to load.");
     }
   };
 
@@ -1207,20 +1083,20 @@ function AudioDiagnostics({ volume, setVolume }: { volume: number; setVolume: (v
       <div>
         <h2>Audio</h2>
         <div className="mapping-summary">
-          <span>Context</span>
-          <strong>{getSharedAudioContext()?.state ?? "none"}</strong>
-          <span>Engine</span>
+          <span>Track</span>
+          <strong>{audioWindow?.label ?? "None"}</strong>
+          <span>Audio</span>
           <strong>{state}</strong>
-          <span>Loop</span>
-          <strong>{loop ? `${loop.duration.toFixed(2)}s from ${loop.sourceDuration.toFixed(2)}s clip` : "Not loaded"}</strong>
-          <span>Region</span>
-          <strong>{loop ? `${loop.startTime.toFixed(2)}-${loop.endTime.toFixed(2)}s` : "Pending"}</strong>
+          <span>Clip</span>
+          <strong>{clipDuration ? `${clipDuration.toFixed(2)}s` : "Not loaded"}</strong>
+          <span>Time code</span>
+          <strong>{audioWindow ? `${audioWindow.startTime.toFixed(2)}-${audioWindow.endTime.toFixed(2)}s` : "Pending"}</strong>
         </div>
         <p className="small-copy">{message}</p>
       </div>
       <div>
         <div className="operator-actions">
-          <Button onClick={startTest}>{controllerRef.current ? "Stop engine" : "Test engine"}</Button>
+          <Button onClick={startTest} disabled={!audioWindow}>{controllerRef.current ? "Stop audio" : "Test track audio"}</Button>
           <Button variant="ghost" onClick={stopTest}>Mute</Button>
         </div>
         <label className="range-row">
@@ -1244,6 +1120,7 @@ function RunScreen({
   segment,
   reference,
   calibration,
+  audioWindow,
   audioVolume,
   onComplete,
   onQuit
@@ -1252,6 +1129,7 @@ function RunScreen({
   segment: Segment;
   reference: Sample[];
   calibration: Calibration;
+  audioWindow: TrackAudioWindow | null;
   audioVolume: number;
   onComplete: (run: RunSample[], breakdown: ScoreBreakdown) => void;
   onQuit: () => void;
@@ -1270,7 +1148,7 @@ function RunScreen({
   const lastSampleAt = useRef(0);
   const runRef = useRef<RunSample[]>([]);
   const completedRef = useRef(false);
-  const audioRef = useRef<EngineAudioController | null>(null);
+  const audioRef = useRef<TrackAudioController | null>(null);
   const duration = reference[reference.length - 1].t;
 
   useEffect(() => {
@@ -1298,11 +1176,10 @@ function RunScreen({
   }, []);
 
   useEffect(() => {
-    const ctx = getSharedAudioContext();
     let audioCancelled = false;
     audioReadyRef.current = false;
-    if (ctx) {
-      const controller = new EngineAudioController(ctx, audioVolume);
+    if (audioWindow) {
+      const controller = new TrackAudioController(audioWindow, audioVolume);
       audioRef.current = controller;
       setAudioState("loading");
       controller.load()
@@ -1336,7 +1213,6 @@ function RunScreen({
       }
 
       const t = elapsedRef.current;
-      const ref = sampleAt(reference, t);
       const currentPedals = pedalsRef.current;
 
       if (now - lastPaintAt.current >= 50) {
@@ -1354,7 +1230,7 @@ function RunScreen({
         });
       }
 
-      audioRef.current?.update(ref, currentPedals, pausedRef.current);
+      audioRef.current?.update(t, pausedRef.current);
 
       if (t >= duration && !completedRef.current) {
         completedRef.current = true;
@@ -1373,7 +1249,7 @@ function RunScreen({
       audioRef.current?.stop();
       audioRef.current = null;
     };
-  }, [audioVolume, duration, onComplete, reference]);
+  }, [audioVolume, audioWindow, duration, onComplete, reference]);
 
   useEffect(() => {
     audioRef.current?.setVolume(audioVolume);
@@ -1394,11 +1270,11 @@ function RunScreen({
       </header>
       <section className="stage">
         <div className="run-command">
-          <Eyebrow tag>{audioState === "loading" ? "Engine loading" : audioState === "blocked" ? "Tap to enable engine" : paused ? "Paused" : prompt}</Eyebrow>
+          <Eyebrow tag>{audioState === "loading" ? "Audio loading" : audioState === "blocked" ? "Tap to enable audio" : paused ? "Paused" : prompt}</Eyebrow>
         </div>
         {audioState === "blocked" ? (
           <button className="audio-unlock" onClick={armAudio}>
-            Tap to enable engine
+            Tap to enable audio
           </button>
         ) : null}
         <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} />
@@ -1412,7 +1288,7 @@ function RunScreen({
             Quit
           </Button>
           <Button variant="ghost" onClick={armAudio}>
-            Engine {audioState}
+            Audio {audioState}
           </Button>
         </div>
         <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
@@ -1656,6 +1532,10 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const driver = fixture?.drivers.find((item) => item.code === selectedDriverCode) ?? fixture?.drivers[0] ?? null;
   const segment = fixture?.segments.find((item) => item.id === selectedSegmentId) ?? fixture?.segments[0] ?? null;
   const reference = useMemo(() => (driver && segment ? segmentSamples(driver, segment) : []), [driver, segment]);
+  const audioWindow = useMemo(
+    () => (fixture && driver && segment ? trackAudioWindow(fixture, driver, segment) : null),
+    [driver, fixture, segment]
+  );
   const key = fixture && driver && segment ? leaderboardKey(fixture, driver, segment) : "";
   const currentBoard = key ? sortedLeaderboard(leaderboard, key) : [];
   const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
@@ -1758,6 +1638,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         setCalibration={setCalibration}
         audioVolume={audioVolume}
         setAudioVolume={setAudioVolume}
+        audioWindow={audioWindow}
         pedals={livePedals}
         onDone={() => setScreen("attract")}
       />
@@ -1847,6 +1728,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         segment={segment}
         reference={reference}
         calibration={calibration}
+        audioWindow={audioWindow}
         audioVolume={audioVolume}
         onComplete={completeRun}
         onQuit={resetToAttract}
