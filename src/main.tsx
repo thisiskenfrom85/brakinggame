@@ -1160,7 +1160,6 @@ function RunScreen({
   const [runArmed, setRunArmed] = useState(false);
   const [audioState, setAudioState] = useState<EngineAudioState>("idle");
   const pausedRef = useRef(false);
-  const audioReadyRef = useRef(false);
   const runArmedRef = useRef(false);
   const elapsedRef = useRef(0);
   const lastFrameAt = useRef<number | null>(null);
@@ -1183,7 +1182,6 @@ function RunScreen({
     const controller = audioRef.current;
     if (!runArmedRef.current) {
       runArmedRef.current = true;
-      audioReadyRef.current = true;
       setRunArmed(true);
     }
     if (!controller) {
@@ -1199,7 +1197,7 @@ function RunScreen({
 
   useEffect(() => {
     let audioCancelled = false;
-    audioReadyRef.current = false;
+    runArmedRef.current = false;
     if (audioWindow) {
       const controller = new TrackAudioController(audioWindow, audioVolume);
       audioRef.current = controller;
@@ -1207,18 +1205,15 @@ function RunScreen({
       controller.load()
         .then(() => {
           if (audioCancelled) return;
-          audioReadyRef.current = false;
           setAudioState(controller.state);
         })
         .catch(() => {
           if (audioCancelled) return;
           audioRef.current?.stop();
           audioRef.current = null;
-          audioReadyRef.current = true;
           setAudioState("unavailable");
         });
     } else {
-      audioReadyRef.current = true;
       setAudioState("unavailable");
     }
 
@@ -1228,7 +1223,7 @@ function RunScreen({
       const delta = Math.min(0.08, Math.max(0, (now - lastFrameAt.current) / 1000));
       lastFrameAt.current = now;
 
-      if (!pausedRef.current && audioReadyRef.current) {
+      if (!pausedRef.current && runArmedRef.current) {
         elapsedRef.current += delta;
       }
 
@@ -1240,7 +1235,7 @@ function RunScreen({
         lastPaintAt.current = now;
       }
 
-      if (!pausedRef.current && t - lastSampleAt.current >= 1 / 24) {
+      if (runArmedRef.current && !pausedRef.current && t - lastSampleAt.current >= 1 / 24) {
         const sample = { t, brake: currentPedals.brake, throttle: currentPedals.throttle };
         runRef.current.push(sample);
         lastSampleAt.current = t;
@@ -1250,7 +1245,7 @@ function RunScreen({
         });
       }
 
-      audioRef.current?.update(t, pausedRef.current);
+      if (runArmedRef.current) audioRef.current?.update(t, pausedRef.current);
 
       if (t >= duration && !completedRef.current) {
         completedRef.current = true;
@@ -1279,11 +1274,9 @@ function RunScreen({
   const prompt = ref.brake > 0.5 ? "Brake" : ref.throttle > 50 ? "Throttle" : "Release";
   const command = !runArmed
       ? "Tap to start run"
-      : audioState === "blocked"
-        ? "Audio blocked"
-        : paused
-          ? "Paused"
-          : prompt;
+      : paused
+        ? "Paused"
+        : prompt;
 
   return (
     <main className="run-screen">
@@ -1845,7 +1838,8 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         italic={`${flagForEvent(fixture.event)} ${fixture.name}. ${driver.name}. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
         onBack={() => setScreen("segment")}
         onNext={() => {
-          void primeAudio().finally(() => setScreen("run"));
+          setScreen("run");
+          void primeAudio();
         }}
         nextLabel="Start run"
         nextProminent
