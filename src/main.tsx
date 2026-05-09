@@ -237,15 +237,17 @@ function Button({
   children,
   variant = "primary",
   onClick,
-  disabled = false
+  disabled = false,
+  size = "normal"
 }: {
   children: React.ReactNode;
   variant?: "primary" | "secondary" | "ghost";
   onClick?: () => void;
   disabled?: boolean;
+  size?: "normal" | "large";
 }) {
   return (
-    <button className={`button button-${variant}`} onClick={onClick} disabled={disabled}>
+    <button className={`button button-${variant} ${size === "large" ? "button-large" : ""}`} onClick={onClick} disabled={disabled}>
       {children}
     </button>
   );
@@ -260,6 +262,7 @@ function StepChrome({
   onNext,
   nextLabel = "Next",
   nextDisabled = false,
+  nextProminent = false,
   onSecret
 }: {
   eyebrow: string;
@@ -270,6 +273,7 @@ function StepChrome({
   onNext?: () => void;
   nextLabel?: string;
   nextDisabled?: boolean;
+  nextProminent?: boolean;
   onSecret?: () => void;
 }) {
   return (
@@ -290,8 +294,8 @@ function StepChrome({
       </section>
 
       {onNext ? (
-        <footer className="step-footer">
-          <Button onClick={onNext} disabled={nextDisabled}>
+        <footer className={`step-footer ${nextProminent ? "step-footer-prominent" : ""}`}>
+          <Button onClick={onNext} disabled={nextDisabled} size={nextProminent ? "large" : "normal"}>
             {nextLabel}
           </Button>
         </footer>
@@ -305,7 +309,7 @@ function ChoiceGrid<T extends string>({
   selected,
   onSelect
 }: {
-  items: { id: T; eyebrow?: string; title: string; meta?: string; accent?: string }[];
+  items: { id: T; eyebrow?: string; title: string; meta?: string; accent?: string; visual?: React.ReactNode }[];
   selected: T;
   onSelect: (id: T) => void;
 }) {
@@ -319,12 +323,60 @@ function ChoiceGrid<T extends string>({
           style={{ "--choice-accent": item.accent ?? "var(--accent)" } as React.CSSProperties}
         >
           <span className="choice-rule" />
+          {item.visual ? <span className="choice-visual">{item.visual}</span> : null}
           {item.eyebrow ? <span className="eyebrow">{item.eyebrow}</span> : null}
           <strong>{item.title}</strong>
           {item.meta ? <small>{item.meta}</small> : null}
         </button>
       ))}
     </div>
+  );
+}
+
+function TrackMap({
+  segment,
+  totalDistance,
+  label
+}: {
+  segment?: Segment;
+  totalDistance: number;
+  label?: string;
+}) {
+  const start = segment && segment.type !== "full" ? clamp(segment.startDistance / totalDistance, 0, 1) * 100 : 0;
+  const end = segment && segment.type !== "full" ? clamp(segment.endDistance / totalDistance, 0, 1) * 100 : 100;
+  const dash = Math.max(2, end - start);
+  const gap = Math.max(0, 100 - dash);
+
+  return (
+    <svg className="track-map" viewBox="0 0 220 132" role="img" aria-label={label ?? "Track map"}>
+      <path
+        pathLength="100"
+        d="M31 77 C33 37 74 18 111 25 C137 30 139 53 121 61 C101 71 73 58 83 43 C93 27 142 25 170 41 C198 57 201 91 178 108 C145 132 83 116 55 103 C40 96 30 88 31 77 Z"
+      />
+      <path
+        className="track-map-highlight"
+        pathLength="100"
+        strokeDasharray={`${dash} ${gap}`}
+        strokeDashoffset={-start}
+        d="M31 77 C33 37 74 18 111 25 C137 30 139 53 121 61 C101 71 73 58 83 43 C93 27 142 25 170 41 C198 57 201 91 178 108 C145 132 83 116 55 103 C40 96 30 88 31 77 Z"
+      />
+    </svg>
+  );
+}
+
+function DriverThumb({ driver }: { driver: DriverTrace }) {
+  const initials = driver.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2);
+
+  return (
+    <span className="driver-thumb" style={{ "--driver-accent": driver.color } as React.CSSProperties}>
+      <span>{driver.number}</span>
+      <strong>{initials}</strong>
+      <small>{driver.code}</small>
+    </span>
   );
 }
 
@@ -346,13 +398,11 @@ function PedalMeters({ brake, throttle }: { brake: number; throttle: number }) {
 function TelemetryGraph({
   reference,
   run,
-  progress,
-  prompt
+  progress
 }: {
   reference: Sample[];
   run: RunSample[];
   progress: number;
-  prompt?: string;
 }) {
   const width = 1000;
   const height = 440;
@@ -388,7 +438,6 @@ function TelemetryGraph({
         <span>Reference</span>
         <span>You</span>
       </div>
-      {prompt ? <div className="run-prompt">{prompt}</div> : null}
       <svg className="telemetry-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Brake and throttle trace">
         <rect x="0" y="0" width={width} height={height} rx="8" />
         {[0, 0.25, 0.5, 0.75, 1].map((line) => (
@@ -519,9 +568,21 @@ function RunScreen({
   const pedalsRef = useRef(pedals);
   const [run, setRun] = useState<RunSample[]>([]);
   const [elapsed, setElapsed] = useState(0);
-  const startedAt = useRef<number | null>(null);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  const elapsedRef = useRef(0);
+  const lastFrameAt = useRef<number | null>(null);
+  const lastPaintAt = useRef(0);
+  const lastSampleAt = useRef(0);
+  const runRef = useRef<RunSample[]>([]);
   const completedRef = useRef(false);
-  const audioRef = useRef<{ ctx: AudioContext; osc: OscillatorNode; gain: GainNode } | null>(null);
+  const audioRef = useRef<{
+    ctx: AudioContext;
+    engine: OscillatorNode;
+    brake: OscillatorNode;
+    engineGain: GainNode;
+    brakeGain: GainNode;
+  } | null>(null);
   const duration = reference[reference.length - 1].t;
 
   useEffect(() => {
@@ -529,43 +590,84 @@ function RunScreen({
   }, [pedals]);
 
   useEffect(() => {
+    pausedRef.current = paused;
+    if (audioRef.current) {
+      if (paused) {
+        audioRef.current.ctx.suspend().catch(() => undefined);
+      } else {
+        audioRef.current.ctx.resume().catch(() => undefined);
+      }
+    }
+  }, [paused]);
+
+  useEffect(() => {
     const AudioCtx = window.AudioContext;
     if (AudioCtx) {
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sawtooth";
-      gain.gain.value = 0.0001;
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      audioRef.current = { ctx, osc, gain };
+      try {
+        const ctx = new AudioCtx();
+        const engine = ctx.createOscillator();
+        const brake = ctx.createOscillator();
+        const engineGain = ctx.createGain();
+        const brakeGain = ctx.createGain();
+        engine.type = "sawtooth";
+        brake.type = "triangle";
+        engineGain.gain.value = 0.0001;
+        brakeGain.gain.value = 0.0001;
+        engine.connect(engineGain).connect(ctx.destination);
+        brake.connect(brakeGain).connect(ctx.destination);
+        engine.start();
+        brake.start();
+        audioRef.current = { ctx, engine, brake, engineGain, brakeGain };
+      } catch {
+        audioRef.current = null;
+      }
     }
 
     let frame = 0;
     const tick = (now: number) => {
-      if (startedAt.current === null) startedAt.current = now;
-      const t = (now - startedAt.current) / 1000;
+      if (lastFrameAt.current === null) lastFrameAt.current = now;
+      const delta = Math.min(0.08, Math.max(0, (now - lastFrameAt.current) / 1000));
+      lastFrameAt.current = now;
+
+      if (!pausedRef.current) {
+        elapsedRef.current += delta;
+      }
+
+      const t = elapsedRef.current;
       const ref = sampleAt(reference, t);
       const currentPedals = pedalsRef.current;
-      setElapsed(t);
-      setRun((current) => {
-        const next = [...current, { t, brake: currentPedals.brake, throttle: currentPedals.throttle }];
-        return next.length > 900 ? next.slice(next.length - 900) : next;
-      });
+
+      if (now - lastPaintAt.current >= 50) {
+        setElapsed(t);
+        lastPaintAt.current = now;
+      }
+
+      if (!pausedRef.current && t - lastSampleAt.current >= 1 / 24) {
+        const sample = { t, brake: currentPedals.brake, throttle: currentPedals.throttle };
+        runRef.current.push(sample);
+        lastSampleAt.current = t;
+        setRun((current) => {
+          const next = [...current, sample];
+          return next.length > 420 ? next.slice(next.length - 420) : next;
+        });
+      }
 
       if (audioRef.current) {
-        const frequency = clamp(ref.rpm / 12000, 0.2, 1) * 420 + ref.gear * 32;
-        audioRef.current.osc.frequency.setTargetAtTime(frequency, audioRef.current.ctx.currentTime, 0.03);
-        audioRef.current.gain.gain.setTargetAtTime(0.02 + clamp(ref.speed / 320) * 0.06, audioRef.current.ctx.currentTime, 0.04);
+        const throttleLoad = Math.max(currentPedals.throttle, ref.throttle / 100);
+        const brakeLoad = currentPedals.brake;
+        const frequency = 180 + clamp(ref.rpm / 12000, 0.15, 1) * 460 + throttleLoad * 160 - brakeLoad * 70;
+        const nowAudio = audioRef.current.ctx.currentTime;
+        audioRef.current.engine.frequency.setTargetAtTime(frequency, nowAudio, 0.03);
+        audioRef.current.brake.frequency.setTargetAtTime(90 + brakeLoad * 120 + ref.gear * 12, nowAudio, 0.04);
+        audioRef.current.engineGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : 0.014 + throttleLoad * 0.055, nowAudio, 0.04);
+        audioRef.current.brakeGain.gain.setTargetAtTime(pausedRef.current ? 0.0001 : brakeLoad * 0.04, nowAudio, 0.04);
       }
 
       if (t >= duration && !completedRef.current) {
         completedRef.current = true;
-        setRun((current) => {
-          const breakdown = scoreRun(reference, current);
-          window.setTimeout(() => onComplete(current, breakdown), 0);
-          return current;
-        });
+        const finalRun = runRef.current;
+        const breakdown = scoreRun(reference, finalRun);
+        window.setTimeout(() => onComplete(finalRun, breakdown), 0);
         return;
       }
       frame = requestAnimationFrame(tick);
@@ -575,9 +677,15 @@ function RunScreen({
     return () => {
       cancelAnimationFrame(frame);
       if (audioRef.current) {
-        audioRef.current.gain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
-        audioRef.current.osc.stop(audioRef.current.ctx.currentTime + 0.05);
-        audioRef.current.ctx.close();
+        try {
+          audioRef.current.engineGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
+          audioRef.current.brakeGain.gain.setTargetAtTime(0.0001, audioRef.current.ctx.currentTime, 0.02);
+          audioRef.current.engine.stop(audioRef.current.ctx.currentTime + 0.05);
+          audioRef.current.brake.stop(audioRef.current.ctx.currentTime + 0.05);
+          audioRef.current.ctx.close().catch(() => undefined);
+        } catch {
+          audioRef.current.ctx.close().catch(() => undefined);
+        }
       }
     };
   }, [duration, onComplete, reference]);
@@ -596,9 +704,17 @@ function RunScreen({
         <div className="run-clock">{Math.max(0, duration - elapsed).toFixed(1)}</div>
       </header>
       <section className="stage">
-        <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} prompt={prompt} />
+        <div className="run-command">
+          <Eyebrow tag>{paused ? "Paused" : prompt}</Eyebrow>
+        </div>
+        <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} />
       </section>
       <footer className="run-footer">
+        <div className="run-control">
+          <Button variant="secondary" onClick={() => setPaused((current) => !current)}>
+            {paused ? "Resume" : "Pause"}
+          </Button>
+        </div>
         <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
         <div className="run-hint">Space brake · W throttle</div>
       </footer>
@@ -766,6 +882,8 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
   const driver = fixture.drivers.find((item) => item.code === selectedDriverCode) ?? fixture.drivers[0];
   const segment = fixture.segments.find((item) => item.id === selectedSegmentId) ?? fixture.segments[0];
   const reference = useMemo(() => segmentSamples(driver, segment), [driver, segment]);
+  const fullSegment = fixture.segments.find((item) => item.type === "full") ?? fixture.segments[fixture.segments.length - 1];
+  const trackDistance = Math.max(fullSegment.endDistance, ...fixture.segments.map((item) => item.endDistance));
   const key = leaderboardKey(fixture, driver, segment);
   const currentBoard = sortedLeaderboard(leaderboard, key);
   const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
@@ -903,7 +1021,13 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
         <ChoiceGrid
           selected={fixture.id}
           onSelect={() => undefined}
-          items={[{ id: fixture.id, eyebrow: fixture.session, title: fixture.name, meta: fixture.event }]}
+          items={[{
+            id: fixture.id,
+            eyebrow: fixture.session,
+            title: fixture.name,
+            meta: fixture.event,
+            visual: <TrackMap segment={fullSegment} totalDistance={trackDistance} label={`${fixture.name} map`} />
+          }]}
         />
       </StepChrome>
     );
@@ -926,7 +1050,8 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
             eyebrow: item.team,
             title: item.name,
             meta: `${item.code} · Lap ${item.lap} · ${formatLap(item.lapTime)}`,
-            accent: item.color
+            accent: item.color,
+            visual: <DriverThumb driver={item} />
           }))}
         />
       </StepChrome>
@@ -951,7 +1076,8 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
             meta:
               item.type === "full"
                 ? "Full lap trace"
-                : `${Math.round(item.endDistance - item.startDistance)} m challenge`
+                : `${Math.round(item.endDistance - item.startDistance)} m challenge`,
+            visual: <TrackMap segment={item} totalDistance={trackDistance} label={`${item.name} map section`} />
           }))}
         />
       </StepChrome>
@@ -967,6 +1093,7 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
         onBack={() => setScreen("corner")}
         onNext={() => setScreen("run")}
         nextLabel="Start run"
+        nextProminent
       >
         <div className="ready-stage">
           <TelemetryGraph reference={reference} run={[]} progress={0} />

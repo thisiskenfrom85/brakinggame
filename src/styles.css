@@ -122,6 +122,15 @@ button {
   color: var(--fg);
 }
 
+.button-large {
+  min-height: 76px;
+  min-width: min(360px, 82vw);
+  padding: 0 58px;
+  font-size: 20px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .button-secondary {
   background: var(--bg);
   border-color: var(--fg);
@@ -245,6 +254,11 @@ button {
   padding: 12px 0 42px;
 }
 
+.step-footer-prominent {
+  justify-content: center;
+  padding-bottom: 58px;
+}
+
 .choice-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -280,6 +294,65 @@ button {
   height: 3px;
   background: var(--choice-accent);
   margin-bottom: 24px;
+}
+
+.choice-visual {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+  margin: -6px 0 18px;
+  overflow: hidden;
+}
+
+.track-map {
+  width: min(230px, 100%);
+  height: auto;
+}
+
+.track-map path {
+  fill: none;
+  stroke: rgba(45, 45, 52, 0.18);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 14;
+}
+
+.track-map .track-map-highlight {
+  stroke: var(--choice-accent, var(--accent));
+  stroke-width: 15;
+}
+
+.driver-thumb {
+  aspect-ratio: 1;
+  background:
+    linear-gradient(135deg, transparent 44%, rgba(255, 255, 255, 0.82) 45% 55%, transparent 56%),
+    linear-gradient(145deg, var(--driver-accent), #2d2d34 68%);
+  border: 1px solid rgba(45, 45, 52, 0.18);
+  border-radius: 8px;
+  color: #fff;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 132px;
+  padding: 12px;
+  width: 132px;
+}
+
+.driver-thumb span,
+.driver-thumb small {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.driver-thumb strong {
+  align-self: center;
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.driver-thumb small {
+  justify-self: end;
 }
 
 .choice strong {
@@ -348,8 +421,22 @@ button {
 
 .stage {
   display: grid;
+  grid-template-rows: auto 1fr;
   place-items: center;
-  padding: 18px 46px;
+  gap: 18px;
+  padding: 10px 46px 18px;
+}
+
+.run-command {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+}
+
+.run-command .eyebrow-tag {
+  min-width: 190px;
+  padding: 9px 22px;
+  text-align: center;
 }
 
 .graph-shell {
@@ -370,20 +457,6 @@ button {
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.run-prompt {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  transform: translate(-50%, -50%);
-  color: rgba(239, 239, 242, 0.92);
-  font-size: clamp(52px, 8vw, 118px);
-  font-weight: 900;
-  line-height: 1;
-  pointer-events: none;
-  text-transform: uppercase;
-  z-index: 1;
 }
 
 .telemetry-graph {
@@ -440,16 +513,26 @@ button {
 }
 
 .run-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: flex-end;
-  justify-content: space-between;
   gap: 28px;
   padding: 12px 38px 32px;
+}
+
+.run-control {
+  align-self: center;
+}
+
+.run-footer .run-hint {
+  align-self: center;
+  justify-self: end;
 }
 
 .pedal-meters {
   display: flex;
   gap: 14px;
+  justify-self: center;
 }
 
 .pedal-meter {
@@ -738,8 +821,14 @@ button {
   }
 
   .run-footer {
+    grid-template-columns: 1fr;
     align-items: center;
     padding: 12px;
+  }
+
+  .run-control,
+  .run-footer .run-hint {
+    justify-self: center;
   }
 
   .leaderboard-row {
