@@ -306,8 +306,8 @@ button {
 
 .track-map-wrap {
   aspect-ratio: 1.58;
-  background: #050507;
-  border: 1px solid rgba(45, 45, 52, 0.16);
+  background: #ffffff;
+  border: 1px solid rgba(45, 45, 52, 0.12);
   border-radius: 8px;
   display: block;
   margin: 0 auto;
@@ -316,14 +316,31 @@ button {
   width: min(250px, 100%);
 }
 
-.track-map-wrap img {
+.track-line-map {
   display: block;
   height: 100%;
-  object-fit: contain;
-  object-position: var(--map-x) var(--map-y);
-  transform: scale(var(--map-scale));
-  transform-origin: var(--map-x) var(--map-y);
   width: 100%;
+}
+
+.track-line-map path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.track-line-base {
+  stroke: rgba(45, 45, 52, 0.16);
+  stroke-width: 32;
+}
+
+.track-line-highlight-halo {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 42;
+}
+
+.track-line-highlight {
+  stroke: var(--segment-accent, var(--accent));
+  stroke-width: 26;
 }
 
 .driver-thumb {

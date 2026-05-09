@@ -2,11 +2,6 @@
 
 BrakeTrace bundles these assets for offline kiosk use.
 
-## Track Map
-
-- Shanghai International Circuit 2026 detailed track map: Formula 1.
-  Source: https://www.formula1.com/en/racing/2026/china
-
 ## Driver Photos
 
 - Official 2026 F1 driver graphics for Fernando Alonso, Lewis Hamilton, Charles Leclerc, Lando Norris, Oscar Piastri, George Russell, Carlos Sainz, and Max Verstappen: Formula 1.

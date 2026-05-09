@@ -22,7 +22,7 @@ export type DriverTrace = {
 export type Segment = {
   id: string;
   name: string;
-  type: "corner" | "segment" | "full";
+  type: "segment" | "full";
   startDistance: number;
   endDistance: number;
 };

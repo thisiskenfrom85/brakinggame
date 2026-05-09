@@ -1,11 +1,10 @@
-const CACHE_NAME = "braketrace-v3";
+const CACHE_NAME = "braketrace-v4";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
   "/data/chinese-gp-qualifying.json",
-  "/assets/tracks/shanghai-f1.webp",
   "/assets/drivers/ALO.webp",
   "/assets/drivers/HAM.webp",
   "/assets/drivers/LEC.webp",
