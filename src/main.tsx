@@ -18,6 +18,8 @@ const CALIBRATION_KEY = "braketrace.calibration.v1";
 const IDLE_MS = 90_000;
 const DRIVER_IMAGE_BASE = "/assets/drivers";
 const SEGMENT_ACCENTS = ["#f06aa7", "#ffc300", "#58c7ff", "#65df9c", "#8e7cff", "#ff8a5c", "#7dd3fc"];
+const PS4_L2_BUTTON = 6;
+const PS4_R2_BUTTON = 7;
 const COUNTRY_FLAGS: Record<string, string> = {
   "Australian Grand Prix": "🇦🇺",
   "Chinese Grand Prix": "🇨🇳",
@@ -61,8 +63,8 @@ type Calibration = {
 const defaultCalibration: Calibration = {
   brakeAxis: null,
   throttleAxis: null,
-  brakeButton: null,
-  throttleButton: null,
+  brakeButton: PS4_R2_BUTTON,
+  throttleButton: PS4_L2_BUTTON,
   brakeInvert: false,
   throttleInvert: false,
   deadZone: 0.04
@@ -200,16 +202,19 @@ function readPedals(calibration: Calibration, keyboard: { brake: boolean; thrott
   let throttle = keyboard.throttle ? 1 : 0;
 
   if (pad) {
+    const brakeButton = calibration.brakeButton ?? (calibration.brakeAxis === null ? PS4_R2_BUTTON : null);
+    const throttleButton = calibration.throttleButton ?? (calibration.throttleAxis === null ? PS4_L2_BUTTON : null);
+
     if (calibration.brakeAxis !== null) {
-      brake = normalizeAxis(pad.axes[calibration.brakeAxis] ?? -1, calibration.brakeInvert, calibration.deadZone);
-    } else if (calibration.brakeButton !== null) {
-      brake = pad.buttons[calibration.brakeButton]?.value ?? 0;
+      brake = Math.max(brake, normalizeAxis(pad.axes[calibration.brakeAxis] ?? -1, calibration.brakeInvert, calibration.deadZone));
+    } else if (brakeButton !== null) {
+      brake = Math.max(brake, pad.buttons[brakeButton]?.value ?? 0);
     }
 
     if (calibration.throttleAxis !== null) {
-      throttle = normalizeAxis(pad.axes[calibration.throttleAxis] ?? -1, calibration.throttleInvert, calibration.deadZone);
-    } else if (calibration.throttleButton !== null) {
-      throttle = pad.buttons[calibration.throttleButton]?.value ?? 0;
+      throttle = Math.max(throttle, normalizeAxis(pad.axes[calibration.throttleAxis] ?? -1, calibration.throttleInvert, calibration.deadZone));
+    } else if (throttleButton !== null) {
+      throttle = Math.max(throttle, pad.buttons[throttleButton]?.value ?? 0);
     }
   }
 
@@ -583,6 +588,16 @@ function CalibrationScreen({
     setCalibration({ ...calibration, [key]: axis, [key.replace("Axis", "Button")]: null });
   };
 
+  const setPs4Preset = () => {
+    setCalibration({
+      ...calibration,
+      brakeAxis: null,
+      throttleAxis: null,
+      brakeButton: PS4_R2_BUTTON,
+      throttleButton: PS4_L2_BUTTON
+    });
+  };
+
   return (
     <main className="calibration-screen">
       <header className="topbar">
@@ -596,6 +611,9 @@ function CalibrationScreen({
         <p className="italic-line">Connect the rig, press each pedal, and assign the axis that moves.</p>
         <div className="operator-status">
           {pad ? `${pad.id} connected` : "No game controller detected. Keyboard fallback is active."}
+        </div>
+        <div className="operator-actions">
+          <Button variant="secondary" onClick={setPs4Preset}>PS4 L2 throttle · R2 brake</Button>
         </div>
         <div className="calibration-grid">
           <div>
@@ -641,7 +659,7 @@ function CalibrationScreen({
             </label>
           </div>
         </div>
-        {buttons.length ? <p className="small-copy">Buttons are visible to the browser, but this build prioritizes pedal axes for analog scoring.</p> : null}
+        {buttons.length ? <p className="small-copy">PS4 preset uses button 6 for L2 throttle and button 7 for R2 brake. The Ready screen pedal meters are the quickest test.</p> : null}
       </section>
     </main>
   );
@@ -860,7 +878,7 @@ function RunScreen({
           </Button>
         </div>
         <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
-        <div className="run-hint">Space brake · W throttle</div>
+        <div className="run-hint">L2 throttle · R2 brake · Space/W keyboard</div>
       </footer>
     </main>
   );
