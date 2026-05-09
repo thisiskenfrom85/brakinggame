@@ -51,6 +51,7 @@ let sharedAudioContext: AudioContext | null = null;
 
 type Screen = "attract" | "track" | "driver" | "segment" | "ready" | "run" | "result" | "leaderboard" | "calibration";
 type Calibration = {
+  gamepadIndex: number | null;
   brakeAxis: number | null;
   throttleAxis: number | null;
   brakeButton: number | null;
@@ -61,6 +62,7 @@ type Calibration = {
 };
 
 const defaultCalibration: Calibration = {
+  gamepadIndex: null,
   brakeAxis: null,
   throttleAxis: null,
   brakeButton: PS4_R2_BUTTON,
@@ -197,28 +199,31 @@ function normalizeAxis(value: number, invert: boolean, deadZone: number) {
 
 function readPedals(calibration: Calibration, keyboard: { brake: boolean; throttle: boolean }) {
   const pads = navigator.getGamepads?.() ?? [];
-  const pad = Array.from(pads).find(Boolean);
+  const activePads = Array.from(pads).filter(Boolean) as Gamepad[];
+  const configuredIndex = calibration.gamepadIndex ?? null;
+  const pad = configuredIndex !== null ? pads[configuredIndex] ?? null : activePads[0] ?? null;
+  const brakeAxis = typeof calibration.brakeAxis === "number" ? calibration.brakeAxis : null;
+  const throttleAxis = typeof calibration.throttleAxis === "number" ? calibration.throttleAxis : null;
+  const brakeButton = typeof calibration.brakeButton === "number" ? calibration.brakeButton : null;
+  const throttleButton = typeof calibration.throttleButton === "number" ? calibration.throttleButton : null;
   let brake = keyboard.brake ? 1 : 0;
   let throttle = keyboard.throttle ? 1 : 0;
 
   if (pad) {
-    const brakeButton = calibration.brakeButton ?? (calibration.brakeAxis === null ? PS4_R2_BUTTON : null);
-    const throttleButton = calibration.throttleButton ?? (calibration.throttleAxis === null ? PS4_L2_BUTTON : null);
-
-    if (calibration.brakeAxis !== null) {
-      brake = Math.max(brake, normalizeAxis(pad.axes[calibration.brakeAxis] ?? -1, calibration.brakeInvert, calibration.deadZone));
+    if (brakeAxis !== null) {
+      brake = Math.max(brake, normalizeAxis(pad.axes[brakeAxis] ?? -1, calibration.brakeInvert, calibration.deadZone));
     } else if (brakeButton !== null) {
       brake = Math.max(brake, pad.buttons[brakeButton]?.value ?? 0);
     }
 
-    if (calibration.throttleAxis !== null) {
-      throttle = Math.max(throttle, normalizeAxis(pad.axes[calibration.throttleAxis] ?? -1, calibration.throttleInvert, calibration.deadZone));
+    if (throttleAxis !== null) {
+      throttle = Math.max(throttle, normalizeAxis(pad.axes[throttleAxis] ?? -1, calibration.throttleInvert, calibration.deadZone));
     } else if (throttleButton !== null) {
       throttle = Math.max(throttle, pad.buttons[throttleButton]?.value ?? 0);
     }
   }
 
-  return { brake: clamp(brake), throttle: clamp(throttle), connected: Boolean(pad), pad };
+  return { brake: clamp(brake), throttle: clamp(throttle), connected: Boolean(pad), pad, pads: activePads };
 }
 
 function useKeyboardPedals() {
@@ -581,22 +586,90 @@ function CalibrationScreen({
   onDone: () => void;
 }) {
   const pad = pedals.pad;
+  const gamepads = pedals.pads;
   const axes = pad?.axes ?? [];
   const buttons = pad?.buttons ?? [];
+  const [detectTarget, setDetectTarget] = useState<"brake" | "throttle" | null>(null);
+  const baselineRef = useRef<{ axes: number[]; buttons: number[] } | null>(null);
+
+  const assignAxis = useCallback(
+    (target: "brake" | "throttle", axis: number) => {
+      if (target === "brake") {
+        setCalibration({ ...calibration, brakeAxis: axis, brakeButton: null });
+      } else {
+        setCalibration({ ...calibration, throttleAxis: axis, throttleButton: null });
+      }
+    },
+    [calibration, setCalibration]
+  );
+
+  const assignButton = useCallback(
+    (target: "brake" | "throttle", button: number) => {
+      if (target === "brake") {
+        setCalibration({ ...calibration, brakeAxis: null, brakeButton: button });
+      } else {
+        setCalibration({ ...calibration, throttleAxis: null, throttleButton: button });
+      }
+    },
+    [calibration, setCalibration]
+  );
 
   const setAxis = (key: "brakeAxis" | "throttleAxis", axis: number) => {
-    setCalibration({ ...calibration, [key]: axis, [key.replace("Axis", "Button")]: null });
+    assignAxis(key === "brakeAxis" ? "brake" : "throttle", axis);
+  };
+
+  const setButton = (key: "brakeButton" | "throttleButton", button: number) => {
+    assignButton(key === "brakeButton" ? "brake" : "throttle", button);
+  };
+
+  const startDetect = (target: "brake" | "throttle") => {
+    baselineRef.current = {
+      axes: [...axes],
+      buttons: buttons.map((button) => button.value)
+    };
+    setDetectTarget(target);
   };
 
   const setPs4Preset = () => {
     setCalibration({
       ...calibration,
+      gamepadIndex: pad?.index ?? calibration.gamepadIndex,
       brakeAxis: null,
       throttleAxis: null,
       brakeButton: PS4_R2_BUTTON,
       throttleButton: PS4_L2_BUTTON
     });
   };
+
+  const clearMapping = () => {
+    setCalibration({
+      ...calibration,
+      brakeAxis: null,
+      throttleAxis: null,
+      brakeButton: null,
+      throttleButton: null
+    });
+  };
+
+  useEffect(() => {
+    if (!detectTarget || !pad || !baselineRef.current) return;
+
+    const baseline = baselineRef.current;
+    const axisIndex = axes.findIndex((axis, index) => Math.abs(axis - (baseline.axes[index] ?? 0)) > 0.28);
+    if (axisIndex >= 0) {
+      assignAxis(detectTarget, axisIndex);
+      baselineRef.current = null;
+      setDetectTarget(null);
+      return;
+    }
+
+    const buttonIndex = buttons.findIndex((button, index) => button.value > 0.35 && Math.abs(button.value - (baseline.buttons[index] ?? 0)) > 0.25);
+    if (buttonIndex >= 0) {
+      assignButton(detectTarget, buttonIndex);
+      baselineRef.current = null;
+      setDetectTarget(null);
+    }
+  }, [assignAxis, assignButton, axes, buttons, detectTarget, pad]);
 
   return (
     <main className="calibration-screen">
@@ -613,10 +686,34 @@ function CalibrationScreen({
           {pad ? `${pad.id} connected` : "No game controller detected. Keyboard fallback is active."}
         </div>
         <div className="operator-actions">
+          <Button onClick={() => startDetect("throttle")} disabled={!pad}>
+            {detectTarget === "throttle" ? "Press throttle..." : "Detect throttle"}
+          </Button>
+          <Button onClick={() => startDetect("brake")} disabled={!pad}>
+            {detectTarget === "brake" ? "Press brake..." : "Detect brake"}
+          </Button>
           <Button variant="secondary" onClick={setPs4Preset}>PS4 L2 throttle · R2 brake</Button>
+          <Button variant="ghost" onClick={clearMapping}>Clear</Button>
         </div>
         <div className="calibration-grid">
           <div>
+            <h2>Device</h2>
+            {gamepads.length ? (
+              <div className="device-list">
+                {gamepads.map((gamepad) => (
+                  <button
+                    className={`device-option ${pad?.index === gamepad.index ? "selected" : ""}`}
+                    key={gamepad.index}
+                    onClick={() => setCalibration({ ...calibration, gamepadIndex: gamepad.index })}
+                  >
+                    <strong>{gamepad.id}</strong>
+                    <span>{gamepad.axes.length} axes · {gamepad.buttons.length} buttons · index {gamepad.index}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="small-copy">Press any pedal or reconnect the Asetek device so the browser exposes it.</p>
+            )}
             <h2>Axes</h2>
             {axes.length ? axes.map((axis, index) => (
               <div className="axis-row" key={index}>
@@ -626,10 +723,27 @@ function CalibrationScreen({
                 <Button variant="secondary" onClick={() => setAxis("throttleAxis", index)}>Throttle</Button>
               </div>
             )) : <p className="small-copy">Move a pedal or reconnect the wheelbase to expose axes.</p>}
+            <h2>Buttons</h2>
+            {buttons.length ? buttons.map((button, index) => (
+              <div className="axis-row" key={index}>
+                <span>Button {index}</span>
+                <div><i style={{ transform: `scaleX(${clamp(button.value)})` }} /></div>
+                <Button variant="secondary" onClick={() => setButton("brakeButton", index)}>Brake</Button>
+                <Button variant="secondary" onClick={() => setButton("throttleButton", index)}>Throttle</Button>
+              </div>
+            )) : <p className="small-copy">Buttons will appear here if this device exposes any.</p>}
           </div>
           <div>
             <h2>Live input</h2>
             <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
+            <div className="mapping-summary">
+              <span>Device</span>
+              <strong>{pad ? `Index ${pad.index}` : "None"}</strong>
+              <span>Brake</span>
+              <strong>{calibration.brakeAxis !== null ? `Axis ${calibration.brakeAxis}` : calibration.brakeButton !== null ? `Button ${calibration.brakeButton}` : "Not mapped"}</strong>
+              <span>Throttle</span>
+              <strong>{calibration.throttleAxis !== null ? `Axis ${calibration.throttleAxis}` : calibration.throttleButton !== null ? `Button ${calibration.throttleButton}` : "Not mapped"}</strong>
+            </div>
             <label className="toggle-row">
               <input
                 type="checkbox"

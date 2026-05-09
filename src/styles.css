@@ -773,6 +773,8 @@ button {
 
 .operator-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 18px;
 }
 
@@ -796,12 +798,70 @@ button {
   text-transform: uppercase;
 }
 
+.device-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.device-option {
+  appearance: none;
+  background: rgba(45, 45, 52, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  text-align: left;
+}
+
+.device-option.selected {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+
+.device-option strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.device-option span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .axis-row {
   display: grid;
   grid-template-columns: 70px 1fr auto auto;
   align-items: center;
   gap: 10px;
   min-height: 48px;
+}
+
+.mapping-summary {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto 1fr;
+  margin: 22px 0;
+  padding-top: 18px;
+}
+
+.mapping-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.mapping-summary strong {
+  font-size: 13px;
+  text-align: right;
 }
 
 .axis-row > span {
