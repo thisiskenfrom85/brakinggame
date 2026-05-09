@@ -1,22 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { DriverTrace, LeaderboardEntry, RunSample, Sample, ScoreBreakdown, Segment, TrackFixture } from "./types";
+import type {
+  DriverTrace,
+  LeaderboardEntry,
+  RunSample,
+  Sample,
+  ScoreBreakdown,
+  Segment,
+  TrackFixture,
+  TrackFixtureSummary,
+  TrackMapPoint
+} from "./types";
 import "./styles.css";
 
 const LEADERBOARD_KEY = "braketrace.leaderboard.v1";
 const CALIBRATION_KEY = "braketrace.calibration.v1";
 const IDLE_MS = 90_000;
 const DRIVER_IMAGE_BASE = "/assets/drivers";
-const SHANGHAI_TRACK_PATH =
-  "m -853.46939,684.61728 c 38.16139,-92.75986 75.45518,-186.8445 110.44898,-278.94642 4.37706,-11.52021 16.72891,-21.75786 27.61225,-27.29847 12.12686,-6.17367 26.56106,-8.56704 39.84948,-8.15816 13.90546,0.42785 29.88085,3.14734 41.73215,10.66836 9.9038,6.2851 18.91494,17.0757 23.84694,27.61225 4.27208,9.12672 5.8417,21.61849 3.7653,31.37755 -2.10728,9.90421 -8.86977,20.60372 -16.31632,27.61224 -6.77794,6.37923 -17.17826,10.48367 -25.10205,8.78571 -9.64764,-2.06735 -19.7519,-12.14329 -23.84693,-23.53316 -3.10178,-8.62723 -16.44578,-15.98154 -23.53317,-18.51275 -4.6269,-1.65247 -15.61631,2.93201 -19.76786,6.90306 -5.4709,5.23303 -10.70616,14.74792 -10.66836,21.96429 0.0435,8.30493 5.28309,19.56263 10.04082,26.98469 5.70146,8.89427 13.55208,18.89277 22.59184,24.78827 10.20513,6.65552 23.2857,12.78326 35.14285,11.60969 20.73207,-2.05197 45.17196,-6.14686 67.77551,-9.41327 49.774,-7.19277 99.49621,-14.30811 149.35714,-20.70918 12.05743,-1.54791 26.20746,-2.70592 37.96684,-0.00001 54.58925,12.56138 105.77827,26.14919 159.39796,41.41837 9.55378,2.72061 21.14246,5.26609 27.92602,11.29592 4.51236,4.01099 4.84068,12.67551 3.13775,17.57143 -1.64401,4.72653 -6.64162,7.72341 -12.55102,10.04082 -15.42733,6.04993 -31.44261,11.76983 -47.69387,15.06122 -16.79976,3.40248 -34.60026,3.30772 -51.77297,2.82398 -42.23545,-1.18973 -84.15896,-5.4448 -126.45152,-7.84438 -16.69723,-0.94736 -33.87182,-2.54529 -50.20408,0 -15.88202,2.47512 -31.88897,9.0391 -45.18368,17.25765 -9.7155,6.00594 -18.22268,15.13699 -23.84694,25.41581 -6.50839,11.89465 -10.97375,25.55559 -13.80612,38.90817 -3.02478,14.25966 -2.8164,29.9556 -0.31378,43.92857 2.51779,14.05764 8.09241,27.33202 15.37501,40.16326 10.28883,18.12794 23.70869,34.55705 33.88775,52.71429 5.30053,9.45501 11.17049,19.66986 12.55102,30.12245 1.54804,11.72088 0.99874,25.83419 -3.76531,36.39796 -4.8584,10.77297 -15.09865,20.68682 -25.10204,27.61224 -11.75171,8.1358 -26.1957,16.90631 -40.16326,17.57143 -21.1753,1.00835 -43.3895,-9.63424 -65.26531,-12.55102 -9.50174,-1.2669 -19.84449,-1.19238 -26.98469,2.82398 -6.24755,3.51425 -10.01906,11.73019 -9.41326,19.45408 1.06767,13.61285 7.54056,27.76501 12.55101,41.73215 4.23293,11.7997 6.7575,23.51168 13.80612,31.06377 4.66566,4.99888 13.64663,6.63688 21.33674,6.58928 18.28428,-0.1132 35.87658,-0.5568 54.28316,0.3138 105.43015,4.9865 212.42876,10.2764 317.54083,13.8061 7.00648,0.2352 13.01766,-4.6145 16.00254,-10.3546 2.45389,-4.719 -1.52466,-11.31348 -2.82398,-16.94387 -2.46599,-10.68594 -11.19448,-22.69356 -8.47194,-32.0051 4.26138,-14.57461 11.56882,-19.17883 21.65052,-21.02296 10.67759,-1.95313 24.52827,-2.26143 36.08418,0.62755 13.54613,3.38653 26.83884,9.79962 37.33928,18.51276 9.16282,7.60319 14.91638,15.56091 18.51276,26.98469 3.51587,11.16805 4.31516,24.52973 1.88265,36.08413 -2.5879,12.2925 -10.32153,24.067 -17.57142,34.5154 -6.9746,10.0516 -15.10627,19.6241 -25.41583,26.0433 -11.86391,7.387 -25.82223,13.4475 -39.84948,15.0613 -33.24826,3.825 -67.14632,1.419 -101.03572,1.2551 -312.10041,-1.5096 -624.17497,-0.1149 -935.6786,-5.0205 -7.2923,-0.1148 -13.9054,-3.1034 -16.0025,-7.5306 -1.6682,-3.5218 5.7168,-12.7733 10.6683,-15.375 19.7322,-10.3677 39.6036,-18.2435 62.1276,-21.6504 27.2617,-4.1237 52.9652,-2.0313 80.9541,-3.4516 46.2393,-2.3463 89.7781,-3.7843 135.551,-5.9617 6.6515,-0.3164 17.53961,-2.8771 20.39541,-9.0996 3.87956,-8.4531 5.45356,-18.4735 8.78572,-27.6122 38.92294,-106.74903 73.48249,-213.3727 116.72448,-318.48212 z";
-const TRACK_SEGMENT_ACCENTS: Record<string, string> = {
-  "t1-t4": "#f06aa7",
-  "t6-t8": "#ffc300",
-  "t9-t10": "#58c7ff",
-  "t11-t13": "#65df9c",
-  "t14-t16": "#8e7cff",
-  full: "#ffc300"
-};
+const SEGMENT_ACCENTS = ["#f06aa7", "#ffc300", "#58c7ff", "#65df9c", "#8e7cff", "#ff8a5c", "#7dd3fc"];
 
 let sharedAudioContext: AudioContext | null = null;
 
@@ -107,6 +108,22 @@ function segmentSamples(driver: DriverTrace, segment: Segment) {
     t: sample.t - first.t,
     distance: sample.distance - first.distance
   }));
+}
+
+type TrackMapSource = Pick<TrackFixture, "map" | "segments">;
+
+function trackDistance(fixture: TrackMapSource) {
+  const full = fixture.segments.find((item) => item.type === "full") ?? fixture.segments[fixture.segments.length - 1];
+  return Math.max(full?.endDistance ?? 1, ...fixture.segments.map((item) => item.endDistance));
+}
+
+function fullTrackSegment(fixture: TrackMapSource) {
+  return fixture.segments.find((item) => item.type === "full") ?? fixture.segments[fixture.segments.length - 1];
+}
+
+function pathFromMapPoints(points: Pick<TrackMapPoint, "x" | "y">[]) {
+  if (!points.length) return "";
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
 
 function sampleAt(samples: Sample[], t: number) {
@@ -375,54 +392,50 @@ function ChoiceGrid<T extends string>({
 }
 
 function TrackMap({
+  fixture,
   segment,
-  totalDistance,
+  accent,
   label
 }: {
+  fixture: TrackMapSource;
   segment?: Segment;
-  totalDistance: number;
+  accent?: string;
   label?: string;
 }) {
-  const start = segment && segment.type !== "full" ? clamp(segment.startDistance / totalDistance, 0, 1) * 100 : 0;
-  const end = segment && segment.type !== "full" ? clamp(segment.endDistance / totalDistance, 0, 1) * 100 : 100;
-  const dash = Math.max(2, end - start);
-  const gap = Math.max(0, 100 - dash);
-  const accent = TRACK_SEGMENT_ACCENTS[segment?.id ?? "full"] ?? TRACK_SEGMENT_ACCENTS.full;
+  const points = fixture.map?.points ?? [];
+  const basePath = pathFromMapPoints(points);
+  const highlightPoints =
+    segment && segment.type !== "full"
+      ? points.filter((point) => point.distance >= segment.startDistance && point.distance <= segment.endDistance)
+      : points;
+  const highlightPath = pathFromMapPoints(highlightPoints.length > 1 ? highlightPoints : points);
 
   return (
     <span
       className="track-map-wrap"
       role="img"
       aria-label={label ?? "Track map"}
-      style={{ "--segment-accent": accent } as React.CSSProperties}
+      style={{ "--segment-accent": accent ?? "var(--accent)" } as React.CSSProperties}
     >
-      <svg className="track-line-map" viewBox="0 0 1207.0945 764.54279" aria-hidden="true">
-        <g transform="translate(1298.8737,-346.65234)">
-          <path className="track-line-base" d={SHANGHAI_TRACK_PATH} />
-          <path
-            className="track-line-highlight-halo"
-            d={SHANGHAI_TRACK_PATH}
-            pathLength="100"
-            strokeDasharray={`${dash} ${gap}`}
-            strokeDashoffset={-start}
-          />
-          <path
-            className="track-line-highlight"
-            d={SHANGHAI_TRACK_PATH}
-            pathLength="100"
-            strokeDasharray={`${dash} ${gap}`}
-            strokeDashoffset={-start}
-          />
-        </g>
+      <svg className="track-line-map" viewBox="0 0 240 150" aria-hidden="true">
+        <path className="track-line-base" d={basePath} />
+        <path className="track-line-highlight-halo" d={highlightPath} />
+        <path className="track-line-highlight" d={highlightPath} />
       </svg>
     </span>
   );
 }
 
 function DriverThumb({ driver }: { driver: DriverTrace }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
   return (
     <span className="driver-thumb" style={{ "--driver-accent": driver.color } as React.CSSProperties}>
-      <img src={`${DRIVER_IMAGE_BASE}/${driver.code}.webp`} alt={driver.name} />
+      {imageFailed ? (
+        <strong className="driver-thumb-fallback">{driver.code}</strong>
+      ) : (
+        <img src={`${DRIVER_IMAGE_BASE}/${driver.code}.webp`} alt={driver.name} onError={() => setImageFailed(true)} />
+      )}
       <span>{driver.code}</span>
     </span>
   );
@@ -879,16 +892,19 @@ function LeaderboardScreen({
 }
 
 function AppRoot() {
-  const [fixture, setFixture] = useState<TrackFixture | null>(null);
+  const [tracks, setTracks] = useState<TrackFixtureSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/data/chinese-gp-qualifying.json")
+    fetch("/data/fixtures-2025-manifest.json")
       .then((response) => {
         if (!response.ok) throw new Error(`Telemetry failed: ${response.status}`);
         return response.json();
       })
-      .then((data) => setFixture(data as TrackFixture))
+      .then((data) => {
+        if (!Array.isArray(data) || data.length === 0) throw new Error("No qualifying fixtures found");
+        setTracks(data as TrackFixtureSummary[]);
+      })
       .catch((caught: Error) => setError(caught.message));
   }, []);
 
@@ -905,7 +921,7 @@ function AppRoot() {
     );
   }
 
-  if (!fixture) {
+  if (!tracks) {
     return (
       <main className="attract-screen">
         <section className="attract-content">
@@ -918,27 +934,23 @@ function AppRoot() {
     );
   }
 
-  return <BrakeTraceApp fixture={fixture} />;
+  return <BrakeTraceApp tracks={tracks} />;
 }
 
-function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
+function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const [screen, setScreen] = useState<Screen>("attract");
-  const [selectedDriverCode, setSelectedDriverCode] = useState(fixture.drivers[0]?.code ?? "");
-  const [selectedSegmentId, setSelectedSegmentId] = useState("t14");
+  const [selectedFixtureId, setSelectedFixtureId] = useState(tracks[0]?.id ?? "");
+  const selectedTrack = tracks.find((item) => item.id === selectedFixtureId) ?? tracks[0]!;
+  const [fixtureCache, setFixtureCache] = useState<Record<string, TrackFixture>>({});
+  const [fixtureError, setFixtureError] = useState<string | null>(null);
+  const fixture = fixtureCache[selectedFixtureId];
+  const [selectedDriverCode, setSelectedDriverCode] = useState("");
+  const [selectedSegmentId, setSelectedSegmentId] = useState(selectedTrack.segments[0]?.id ?? "");
   const [leaderboard, setLeaderboard] = useLocalStorageState<LeaderboardEntry[]>(LEADERBOARD_KEY, []);
   const [calibration, setCalibration] = useLocalStorageState<Calibration>(CALIBRATION_KEY, defaultCalibration);
   const [lastEntryId, setLastEntryId] = useState<string | null>(null);
   const [secretClicks, setSecretClicks] = useState(0);
   const livePedals = useLivePedals(calibration);
-
-  const driver = fixture.drivers.find((item) => item.code === selectedDriverCode) ?? fixture.drivers[0];
-  const segment = fixture.segments.find((item) => item.id === selectedSegmentId) ?? fixture.segments[0];
-  const reference = useMemo(() => segmentSamples(driver, segment), [driver, segment]);
-  const fullSegment = fixture.segments.find((item) => item.type === "full") ?? fixture.segments[fixture.segments.length - 1];
-  const trackDistance = Math.max(fullSegment.endDistance, ...fixture.segments.map((item) => item.endDistance));
-  const key = leaderboardKey(fixture, driver, segment);
-  const currentBoard = sortedLeaderboard(leaderboard, key);
-  const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
 
   const resetToAttract = useCallback(() => {
     setScreen("attract");
@@ -974,6 +986,37 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
     }
   }, []);
 
+  useEffect(() => {
+    setSelectedSegmentId(selectedTrack.segments[0]?.id ?? "");
+    setLastEntryId(null);
+    setFixtureError(null);
+  }, [selectedTrack.id, selectedTrack.segments]);
+
+  useEffect(() => {
+    if (fixtureCache[selectedTrack.id]) return;
+    let cancelled = false;
+    fetch(selectedTrack.dataPath)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Telemetry failed: ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setFixtureCache((cache) => ({ ...cache, [selectedTrack.id]: data as TrackFixture }));
+      })
+      .catch((caught: Error) => {
+        if (!cancelled) setFixtureError(caught.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fixtureCache, selectedTrack.dataPath, selectedTrack.id]);
+
+  useEffect(() => {
+    if (!fixture) return;
+    setSelectedDriverCode(fixture.drivers[0]?.code ?? "");
+  }, [fixture?.id]);
+
   const openSecret = () => {
     setSecretClicks((clicks) => {
       const next = clicks + 1;
@@ -984,6 +1027,66 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
       return next;
     });
   };
+
+  if (screen === "calibration") {
+    return (
+      <CalibrationScreen
+        calibration={calibration}
+        setCalibration={setCalibration}
+        pedals={livePedals}
+        onDone={() => setScreen("attract")}
+      />
+    );
+  }
+
+  if (screen === "track") {
+    return (
+      <StepChrome
+        eyebrow="01 · Track"
+        title="Choose the circuit."
+        onBack={() => setScreen("attract")}
+        onNext={() => setScreen("driver")}
+        nextDisabled={!fixture || Boolean(fixtureError)}
+        onSecret={openSecret}
+      >
+        <ChoiceGrid
+          selected={selectedTrack.id}
+          onSelect={setSelectedFixtureId}
+          items={tracks.map((item) => ({
+            id: item.id,
+            eyebrow: `${item.year} · ${item.session}`,
+            title: item.name,
+            meta: `${item.driverCount} drivers · ${(trackDistance(item) / 1000).toFixed(1)} km`,
+            visual: <TrackMap fixture={item} segment={fullTrackSegment(item)} label={`${item.name} map`} />
+          }))}
+        />
+        {fixtureError ? <p className="small-copy">Telemetry load failed: {fixtureError}</p> : null}
+      </StepChrome>
+    );
+  }
+
+  if (!fixture) {
+    return (
+      <StepChrome
+        eyebrow="Telemetry"
+        title="Loading circuit trace."
+        italic={selectedTrack.event}
+        onBack={() => setScreen("track")}
+        onSecret={openSecret}
+      >
+        <div className="ready-stage">
+          <TrackMap fixture={selectedTrack} segment={fullTrackSegment(selectedTrack)} label={`${selectedTrack.name} map`} />
+        </div>
+      </StepChrome>
+    );
+  }
+
+  const driver = fixture.drivers.find((item) => item.code === selectedDriverCode) ?? fixture.drivers[0]!;
+  const segment = fixture.segments.find((item) => item.id === selectedSegmentId) ?? fixture.segments[0]!;
+  const reference = segmentSamples(driver, segment);
+  const key = leaderboardKey(fixture, driver, segment);
+  const currentBoard = sortedLeaderboard(leaderboard, key);
+  const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
 
   const completeRun = (run: RunSample[], breakdown: ScoreBreakdown) => {
     const entry: LeaderboardEntry = {
@@ -1007,17 +1110,6 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
       leaderboard.map((entry) => (entry.id === lastEntryId ? { ...entry, initials: initials || "YOU" } : entry))
     );
   };
-
-  if (screen === "calibration") {
-    return (
-      <CalibrationScreen
-        calibration={calibration}
-        setCalibration={setCalibration}
-        pedals={livePedals}
-        onDone={() => setScreen("attract")}
-      />
-    );
-  }
 
   if (screen === "run") {
     return (
@@ -1061,30 +1153,6 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
     );
   }
 
-  if (screen === "track") {
-    return (
-      <StepChrome
-        eyebrow="01 · Track"
-        title="Choose the circuit."
-        onBack={() => setScreen("attract")}
-        onNext={() => setScreen("driver")}
-        onSecret={openSecret}
-      >
-        <ChoiceGrid
-          selected={fixture.id}
-          onSelect={() => undefined}
-          items={[{
-            id: fixture.id,
-            eyebrow: fixture.session,
-            title: fixture.name,
-            meta: fixture.event,
-            visual: <TrackMap segment={fullSegment} totalDistance={trackDistance} label={`${fixture.name} map`} />
-          }]}
-        />
-      </StepChrome>
-    );
-  }
-
   if (screen === "driver") {
     return (
       <StepChrome
@@ -1097,7 +1165,7 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
         <ChoiceGrid
           selected={selectedDriverCode}
           onSelect={setSelectedDriverCode}
-          items={fixture.drivers.slice(0, 12).map((item) => ({
+          items={fixture.drivers.map((item) => ({
             id: item.code,
             eyebrow: item.team,
             title: item.name,
@@ -1125,12 +1193,19 @@ function BrakeTraceApp({ fixture }: { fixture: TrackFixture }) {
             id: item.id,
             eyebrow: item.type === "full" ? "full" : "segment",
             title: item.name,
-            accent: TRACK_SEGMENT_ACCENTS[item.id],
+            accent: SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length],
             meta:
               item.type === "full"
                 ? "Full lap trace"
                 : `${Math.round(item.endDistance - item.startDistance)} m segment`,
-            visual: <TrackMap segment={item} totalDistance={trackDistance} label={`${item.name} map section`} />
+            visual: (
+              <TrackMap
+                fixture={fixture}
+                segment={item}
+                accent={SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length]}
+                label={`${item.name} map section`}
+              />
+            )
           }))}
         />
       </StepChrome>

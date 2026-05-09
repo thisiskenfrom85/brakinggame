@@ -330,17 +330,17 @@ button {
 
 .track-line-base {
   stroke: rgba(45, 45, 52, 0.16);
-  stroke-width: 32;
+  stroke-width: 18;
 }
 
 .track-line-highlight-halo {
   stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 42;
+  stroke-width: 26;
 }
 
 .track-line-highlight {
   stroke: var(--segment-accent, var(--accent));
-  stroke-width: 26;
+  stroke-width: 12;
 }
 
 .driver-thumb {
@@ -362,6 +362,17 @@ button {
   object-fit: contain;
   object-position: center bottom;
   width: 100%;
+}
+
+.driver-thumb-fallback {
+  align-items: center;
+  display: flex;
+  font-size: clamp(54px, 9vw, 88px);
+  font-weight: 950;
+  height: 100%;
+  justify-content: center;
+  line-height: 1;
+  opacity: 0.86;
 }
 
 .driver-thumb span {

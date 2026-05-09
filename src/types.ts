@@ -27,6 +27,12 @@ export type Segment = {
   endDistance: number;
 };
 
+export type TrackMapPoint = {
+  x: number;
+  y: number;
+  distance: number;
+};
+
 export type TrackFixture = {
   id: string;
   name: string;
@@ -34,8 +40,17 @@ export type TrackFixture = {
   session: string;
   year: number;
   source: string;
+  map?: {
+    points: TrackMapPoint[];
+  };
   segments: Segment[];
   drivers: DriverTrace[];
+};
+
+export type TrackFixtureSummary = Omit<TrackFixture, "drivers"> & {
+  dataPath: string;
+  driverCount: number;
+  driverCodes: string[];
 };
 
 export type RunSample = {

@@ -1,10 +1,10 @@
-const CACHE_NAME = "braketrace-v4";
+const CACHE_NAME = "braketrace-v5";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
-  "/data/chinese-gp-qualifying.json",
+  "/data/fixtures-2025-manifest.json",
   "/assets/drivers/ALO.webp",
   "/assets/drivers/HAM.webp",
   "/assets/drivers/LEC.webp",
@@ -17,7 +17,14 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())
+    caches
+      .open(CACHE_NAME)
+      .then(async (cache) => {
+        await cache.addAll(APP_SHELL);
+        const manifest = await fetch("/data/fixtures-2025-manifest.json").then((response) => response.json());
+        await cache.addAll(manifest.map((fixture) => fixture.dataPath));
+      })
+      .then(() => self.skipWaiting())
   );
 });
 
