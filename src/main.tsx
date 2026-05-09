@@ -358,21 +358,29 @@ function TelemetryGraph({
   const height = 440;
   const padding = 52;
   const duration = reference[reference.length - 1].t;
+  const focusTime = clamp(progress) * duration;
+  const shouldPan = duration > 18;
+  const windowDuration = shouldPan ? Math.min(14, Math.max(8, duration * 0.16)) : duration;
+  const rawWindowStart = focusTime - windowDuration * 0.38;
+  const windowStart = shouldPan ? clamp(rawWindowStart, 0, Math.max(0, duration - windowDuration)) : 0;
+  const windowEnd = shouldPan ? windowStart + windowDuration : duration;
+  const windowSpan = Math.max(0.001, windowEnd - windowStart);
 
   const points = useCallback(
     (values: { t: number; brake?: number; throttle?: number }[], key: "brake" | "throttle", scale = 1) =>
       values
+        .filter((sample) => sample.t >= windowStart - windowSpan * 0.08 && sample.t <= windowEnd + windowSpan * 0.08)
         .map((sample) => {
-          const x = padding + clamp(sample.t / duration) * (width - padding * 2);
+          const x = padding + ((sample.t - windowStart) / windowSpan) * (width - padding * 2);
           const value = key === "brake" ? sample.brake ?? 0 : sample.throttle ?? 0;
           const y = height - padding - clamp(value / scale) * (height - padding * 2);
           return `${x.toFixed(2)},${y.toFixed(2)}`;
         })
         .join(" "),
-    [duration]
+    [windowEnd, windowSpan, windowStart]
   );
 
-  const playhead = padding + progress * (width - padding * 2);
+  const playhead = padding + clamp((focusTime - windowStart) / windowSpan) * (width - padding * 2);
 
   return (
     <div className="graph-shell">
@@ -384,7 +392,7 @@ function TelemetryGraph({
       <svg className="telemetry-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Brake and throttle trace">
         <rect x="0" y="0" width={width} height={height} rx="8" />
         {[0, 0.25, 0.5, 0.75, 1].map((line) => (
-          <React.Fragment key={line}>
+          <React.Fragment key={`grid-${line}`}>
             <line
               x1={padding + line * (width - padding * 2)}
               x2={padding + line * (width - padding * 2)}
