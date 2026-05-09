@@ -521,6 +521,20 @@ button {
   z-index: 4;
 }
 
+.countdown-overlay {
+  color: var(--accent);
+  font-size: clamp(140px, 18vw, 280px);
+  font-weight: 900;
+  left: 50%;
+  line-height: 0.85;
+  pointer-events: none;
+  position: absolute;
+  text-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+}
+
 .graph-shell {
   width: min(1120px, 100%);
   position: relative;

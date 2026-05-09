@@ -1261,9 +1261,11 @@ function RunScreen({
   const [run, setRun] = useState<RunSample[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(3);
   const [audioState, setAudioState] = useState<EngineAudioState>("idle");
   const pausedRef = useRef(false);
   const audioReadyRef = useRef(false);
+  const countdownDoneRef = useRef(false);
   const elapsedRef = useRef(0);
   const lastFrameAt = useRef<number | null>(null);
   const lastPaintAt = useRef(0);
@@ -1280,6 +1282,22 @@ function RunScreen({
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+
+  useEffect(() => {
+    countdownDoneRef.current = false;
+    setCountdown(3);
+    const timers = [1, 2, 3].map((second) =>
+      window.setTimeout(() => {
+        if (second < 3) {
+          setCountdown(3 - second);
+          return;
+        }
+        countdownDoneRef.current = true;
+        setCountdown(null);
+      }, second * 1000)
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, []);
 
   const armAudio = useCallback(() => {
     const controller = audioRef.current;
@@ -1331,7 +1349,9 @@ function RunScreen({
       const delta = Math.min(0.08, Math.max(0, (now - lastFrameAt.current) / 1000));
       lastFrameAt.current = now;
 
-      if (!pausedRef.current && audioReadyRef.current) {
+      const runActive = countdownDoneRef.current && audioReadyRef.current;
+
+      if (!pausedRef.current && runActive) {
         elapsedRef.current += delta;
       }
 
@@ -1344,7 +1364,7 @@ function RunScreen({
         lastPaintAt.current = now;
       }
 
-      if (!pausedRef.current && t - lastSampleAt.current >= 1 / 24) {
+      if (runActive && !pausedRef.current && t - lastSampleAt.current >= 1 / 24) {
         const sample = { t, brake: currentPedals.brake, throttle: currentPedals.throttle };
         runRef.current.push(sample);
         lastSampleAt.current = t;
@@ -1354,7 +1374,7 @@ function RunScreen({
         });
       }
 
-      audioRef.current?.update(ref, currentPedals, pausedRef.current);
+      audioRef.current?.update(ref, currentPedals, pausedRef.current || !countdownDoneRef.current);
 
       if (t >= duration && !completedRef.current) {
         completedRef.current = true;
@@ -1381,6 +1401,15 @@ function RunScreen({
 
   const ref = sampleAt(reference, elapsed);
   const prompt = ref.brake > 0.5 ? "Brake" : ref.throttle > 50 ? "Throttle" : "Release";
+  const command = countdown !== null
+    ? "Get ready"
+    : audioState === "loading"
+      ? "Engine loading"
+      : audioState === "blocked"
+        ? "Tap to enable engine"
+        : paused
+          ? "Paused"
+          : prompt;
 
   return (
     <main className="run-screen">
@@ -1394,9 +1423,14 @@ function RunScreen({
       </header>
       <section className="stage">
         <div className="run-command">
-          <Eyebrow tag>{audioState === "loading" ? "Engine loading" : audioState === "blocked" ? "Tap to enable engine" : paused ? "Paused" : prompt}</Eyebrow>
+          <Eyebrow tag>{command}</Eyebrow>
         </div>
-        {audioState === "blocked" ? (
+        {countdown !== null ? (
+          <div className="countdown-overlay" aria-live="polite">
+            {countdown}
+          </div>
+        ) : null}
+        {countdown === null && audioState === "blocked" ? (
           <button className="audio-unlock" onClick={armAudio}>
             Tap to enable engine
           </button>
