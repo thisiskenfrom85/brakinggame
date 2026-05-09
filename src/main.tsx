@@ -46,6 +46,33 @@ const COUNTRY_FLAGS: Record<string, string> = {
   "Qatar Grand Prix": "🇶🇦",
   "Abu Dhabi Grand Prix": "🇦🇪"
 };
+const TRACK_CONTINENTS: Record<string, string> = {
+  "Australian Grand Prix": "Oceania",
+  "Chinese Grand Prix": "Asia",
+  "Japanese Grand Prix": "Asia",
+  "Bahrain Grand Prix": "Asia",
+  "Saudi Arabian Grand Prix": "Asia",
+  "Miami Grand Prix": "Americas",
+  "Emilia Romagna Grand Prix": "Europe",
+  "Monaco Grand Prix": "Europe",
+  "Spanish Grand Prix": "Europe",
+  "Canadian Grand Prix": "Americas",
+  "Austrian Grand Prix": "Europe",
+  "British Grand Prix": "Europe",
+  "Belgian Grand Prix": "Europe",
+  "Hungarian Grand Prix": "Europe",
+  "Dutch Grand Prix": "Europe",
+  "Italian Grand Prix": "Europe",
+  "Azerbaijan Grand Prix": "Europe",
+  "Singapore Grand Prix": "Asia",
+  "United States Grand Prix": "Americas",
+  "Mexico City Grand Prix": "Americas",
+  "São Paulo Grand Prix": "Americas",
+  "Las Vegas Grand Prix": "Americas",
+  "Qatar Grand Prix": "Asia",
+  "Abu Dhabi Grand Prix": "Asia"
+};
+const CONTINENT_ORDER = ["Americas", "Europe", "Asia", "Oceania"];
 
 let sharedAudioContext: AudioContext | null = null;
 
@@ -95,17 +122,19 @@ function displayAudioState(ctx: AudioContext) {
 
 function primeAudio() {
   const ctx = getSharedAudioContext();
-  if (!ctx) return;
-  ctx.resume().catch(() => undefined);
+  if (!ctx) return Promise.resolve(false);
 
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = "square";
-  osc.frequency.value = 96;
-  gain.gain.value = 0.0001;
-  osc.connect(gain).connect(ctx.destination);
-  osc.start();
-  osc.stop(ctx.currentTime + 0.03);
+  return ctx.resume().then(() => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.value = 96;
+    gain.gain.value = 0.0001;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.03);
+    return true;
+  }).catch(() => false);
 }
 
 function formatLap(seconds: number) {
@@ -157,6 +186,26 @@ function fullTrackSegment(fixture: TrackMapSource) {
 
 function flagForEvent(event: string) {
   return COUNTRY_FLAGS[event] ?? "";
+}
+
+function continentForEvent(event: string) {
+  return TRACK_CONTINENTS[event] ?? "Other";
+}
+
+function groupedBy<T>(items: T[], groupFor: (item: T) => string, preferredOrder: string[] = []) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const group = groupFor(item);
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => {
+      const aIndex = preferredOrder.indexOf(a);
+      const bIndex = preferredOrder.indexOf(b);
+      if (aIndex >= 0 || bIndex >= 0) return (aIndex >= 0 ? aIndex : 999) - (bIndex >= 0 ? bIndex : 999);
+      return a.localeCompare(b);
+    })
+    .map(([label, groupItems]) => ({ label, items: groupItems }));
 }
 
 function pathFromMapPoints(points: Pick<TrackMapPoint, "x" | "y">[]) {
@@ -431,6 +480,32 @@ function ChoiceGrid<T extends string>({
           <strong>{item.title}</strong>
           {item.meta ? <small>{item.meta}</small> : null}
         </button>
+      ))}
+    </div>
+  );
+}
+
+function GroupedChoiceGrid<T extends string>({
+  groups,
+  selected,
+  onSelect
+}: {
+  groups: {
+    label: string;
+    items: { id: T; eyebrow?: string; title: string; meta?: string; accent?: string; flag?: string; visual?: React.ReactNode }[];
+  }[];
+  selected: T;
+  onSelect: (id: T) => void;
+}) {
+  return (
+    <div className="choice-groups">
+      {groups.map((group) => (
+        <section className="choice-group" key={group.label}>
+          <div className="choice-group-label">
+            <Eyebrow>{group.label}</Eyebrow>
+          </div>
+          <ChoiceGrid items={group.items} selected={selected} onSelect={onSelect} />
+        </section>
       ))}
     </div>
   );
@@ -1234,6 +1309,86 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const key = fixture && driver && segment ? leaderboardKey(fixture, driver, segment) : "";
   const currentBoard = key ? sortedLeaderboard(leaderboard, key) : [];
   const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
+  const trackChoiceGroups = useMemo(
+    () =>
+      groupedBy(tracks, (item) => continentForEvent(item.event), CONTINENT_ORDER).map((group) => ({
+        label: group.label,
+        items: group.items.map((item) => ({
+          id: item.id,
+          eyebrow: `${item.year} · ${item.session}`,
+          title: item.name,
+          flag: flagForEvent(item.event),
+          meta: `${item.driverCount} drivers · ${(trackDistance(item) / 1000).toFixed(1)} km`,
+          visual: <TrackMap fixture={item} segment={fullTrackSegment(item)} label={`${item.name} map`} />
+        }))
+      })),
+    [tracks]
+  );
+  const driverChoiceGroups = useMemo(
+    () =>
+      fixture
+        ? groupedBy(fixture.drivers, (item) => item.team).map((group) => ({
+            label: group.label,
+            items: group.items.map((item) => ({
+              id: item.code,
+              eyebrow: item.team,
+              title: item.name,
+              meta: `${item.code} · Lap ${item.lap} · ${formatLap(item.lapTime)}`,
+              accent: item.color,
+              visual: <DriverThumb driver={item} />
+            }))
+          }))
+        : [],
+    [fixture]
+  );
+  const segmentChoiceGroups = useMemo(
+    () =>
+      fixture
+        ? [
+            {
+              label: "Segments",
+              items: fixture.segments
+                .filter((item) => item.type !== "full")
+                .map((item) => ({
+                  id: item.id,
+                  eyebrow: "segment",
+                  title: item.name,
+                  accent: SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length],
+                  meta: `${Math.round(item.endDistance - item.startDistance)} m segment`,
+                  visual: (
+                    <TrackMap
+                      fixture={fixture}
+                      segment={item}
+                      accent={SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length]}
+                      label={`${item.name} map section`}
+                    />
+                  )
+                }))
+            },
+            {
+              label: "Full track",
+              items: fixture.segments
+                .filter((item) => item.type === "full")
+                .map((item) => ({
+                  id: item.id,
+                  eyebrow: "full",
+                  title: item.name,
+                  accent: SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length],
+                  meta: "Full lap trace",
+                  visual: (
+                    <TrackMap
+                      fixture={fixture}
+                      segment={item}
+                      accent={SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length]}
+                      label={`${item.name} map section`}
+                    />
+                  )
+                }))
+            }
+          ].filter((group) => group.items.length)
+        : [],
+    [fixture]
+  );
 
   const openSecret = () => {
     setSecretClicks((clicks) => {
@@ -1263,21 +1418,15 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         eyebrow="01 · Track"
         title="Choose the circuit."
         onBack={() => setScreen("attract")}
-        onNext={() => setScreen("driver")}
-        nextDisabled={!fixture || Boolean(fixtureError)}
         onSecret={openSecret}
       >
-        <ChoiceGrid
+        <GroupedChoiceGrid
           selected={selectedTrack.id}
-          onSelect={setSelectedFixtureId}
-          items={tracks.map((item) => ({
-            id: item.id,
-            eyebrow: `${item.year} · ${item.session}`,
-            title: item.name,
-            flag: flagForEvent(item.event),
-            meta: `${item.driverCount} drivers · ${(trackDistance(item) / 1000).toFixed(1)} km`,
-            visual: <TrackMap fixture={item} segment={fullTrackSegment(item)} label={`${item.name} map`} />
-          }))}
+          onSelect={(id) => {
+            setSelectedFixtureId(id);
+            setScreen("driver");
+          }}
+          groups={trackChoiceGroups}
         />
         {fixtureError ? <p className="small-copy">Telemetry load failed: {fixtureError}</p> : null}
       </StepChrome>
@@ -1388,19 +1537,14 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         title="Pick your reference."
         italic="Follow their throttle. Chase their brake release."
         onBack={() => setScreen("track")}
-        onNext={() => setScreen("segment")}
       >
-        <ChoiceGrid
+        <GroupedChoiceGrid
           selected={selectedDriverCode}
-          onSelect={setSelectedDriverCode}
-          items={fixture.drivers.map((item) => ({
-            id: item.code,
-            eyebrow: item.team,
-            title: item.name,
-            meta: `${item.code} · Lap ${item.lap} · ${formatLap(item.lapTime)}`,
-            accent: item.color,
-            visual: <DriverThumb driver={item} />
-          }))}
+          onSelect={(id) => {
+            setSelectedDriverCode(id);
+            setScreen("segment");
+          }}
+          groups={driverChoiceGroups}
         />
       </StepChrome>
     );
@@ -1412,29 +1556,14 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         eyebrow="03 · Segment"
         title="Choose the sector."
         onBack={() => setScreen("driver")}
-        onNext={() => setScreen("ready")}
       >
-        <ChoiceGrid
+        <GroupedChoiceGrid
           selected={selectedSegmentId}
-          onSelect={setSelectedSegmentId}
-          items={fixture.segments.map((item) => ({
-            id: item.id,
-            eyebrow: item.type === "full" ? "full" : "segment",
-            title: item.name,
-            accent: SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length],
-            meta:
-              item.type === "full"
-                ? "Full lap trace"
-                : `${Math.round(item.endDistance - item.startDistance)} m segment`,
-            visual: (
-              <TrackMap
-                fixture={fixture}
-                segment={item}
-                accent={SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length]}
-                label={`${item.name} map section`}
-              />
-            )
-          }))}
+          onSelect={(id) => {
+            setSelectedSegmentId(id);
+            setScreen("ready");
+          }}
+          groups={segmentChoiceGroups}
         />
       </StepChrome>
     );
@@ -1448,8 +1577,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         italic={`${flagForEvent(fixture.event)} ${fixture.name}. ${driver.name}. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
         onBack={() => setScreen("segment")}
         onNext={() => {
-          primeAudio();
-          setScreen("run");
+          void primeAudio().finally(() => setScreen("run"));
         }}
         nextLabel="Start run"
         nextProminent
