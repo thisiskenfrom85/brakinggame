@@ -1890,10 +1890,11 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code === "KeyC") setScreen("calibration");
+      if (event.code === "Escape") resetToAttract();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [resetToAttract]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
