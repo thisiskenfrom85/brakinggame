@@ -73,7 +73,11 @@ export type LeaderboardEntry = {
   initials: string;
   score: number;
   driver: string;
+  driverName?: string;
   segment: string;
+  segmentName?: string;
+  trackName?: string;
+  difficulty?: string;
   createdAt: string;
   breakdown: ScoreBreakdown;
 };

@@ -551,6 +551,47 @@ button {
   gap: 28px;
 }
 
+.pedal-check-stage {
+  align-items: center;
+}
+
+.pedal-check-steps {
+  display: grid;
+  gap: 14px;
+}
+
+.pedal-check-step {
+  background: rgba(239, 239, 242, 0.08);
+  border: 1px solid rgba(239, 239, 242, 0.15);
+  border-radius: 8px;
+  color: var(--dark-text);
+  display: grid;
+  gap: 8px;
+  min-width: min(520px, 100%);
+  padding: 24px;
+}
+
+.pedal-check-step span,
+.pedal-check-step small {
+  color: rgba(239, 239, 242, 0.58);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pedal-check-step strong {
+  font-size: clamp(24px, 4vw, 46px);
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.pedal-check-step.complete {
+  border-color: rgba(53, 208, 0, 0.8);
+  box-shadow: inset 4px 0 0 var(--sc-green);
+}
+
 .run-screen {
   min-height: 100vh;
   background: var(--dark);
@@ -907,7 +948,7 @@ button {
 
 .leaderboard-row {
   display: grid;
-  grid-template-columns: 60px 1fr 100px 100px;
+  grid-template-columns: 60px 110px 80px minmax(220px, 1fr);
   align-items: center;
   gap: 12px;
   background: #fff;
@@ -1718,10 +1759,11 @@ button {
   }
 
   .leaderboard-row {
-    grid-template-columns: 42px 1fr 78px;
+    grid-template-columns: 42px 1fr 72px;
+    row-gap: 4px;
   }
 
   .leaderboard-row small {
-    display: none;
+    grid-column: 2 / 4;
   }
 }

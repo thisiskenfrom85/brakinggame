@@ -25,8 +25,38 @@ const ENGINE_AUDIO_PATH = assetPath("assets/audio/engine-loop.m4a");
 const SPEC_SECONDARY_LOGO_PATH = assetPath("assets/spec-secondary.svg");
 const STANDARD_CHARTERED_HOME_LOGO_PATH = assetPath("assets/standard-chartered-home.png");
 const SEGMENT_ACCENTS = ["#0875e1", "#35d000", "#35b8ff", "#00b988", "#79e500", "#2e8fff", "#62dfb0"];
+const PEDAL_CHECK_THRESHOLD = 0.9;
 const PS4_L2_BUTTON = 6;
 const PS4_R2_BUTTON = 7;
+const CHALLENGES = [
+  {
+    id: "beginner",
+    level: "Beginner",
+    trackName: "China",
+    fixtureId: "2025-chinese-grand-prix-qualifying",
+    segmentName: "T1-T5",
+    sourceSegments: ["T1-T5"],
+    accent: "#35d000"
+  },
+  {
+    id: "intermediate",
+    level: "Intermediate",
+    trackName: "Singapore",
+    fixtureId: "2025-singapore-grand-prix-qualifying",
+    segmentName: "T7-T10",
+    sourceSegments: ["T7-T10"],
+    accent: "#0875e1"
+  },
+  {
+    id: "advance",
+    level: "Advance",
+    trackName: "UK",
+    fixtureId: "2025-british-grand-prix-qualifying",
+    segmentName: "T1-T9",
+    sourceSegments: ["T1-T5", "T6-T9"],
+    accent: "#ffc300"
+  }
+] as const;
 const COUNTRY_FLAGS: Record<string, string> = {
   "Australian Grand Prix": "🇦🇺",
   "Chinese Grand Prix": "🇨🇳",
@@ -85,7 +115,9 @@ let sharedAudioContext: AudioContext | null = null;
 const engineBufferCache = new WeakMap<AudioContext, Promise<AudioBuffer>>();
 const processedEngineCache = new WeakMap<AudioContext, Promise<ProcessedEngineLoop>>();
 
-type Screen = "attract" | "track" | "driver" | "segment" | "ready" | "run" | "result" | "leaderboard" | "calibration";
+type DifficultyId = (typeof CHALLENGES)[number]["id"];
+type Challenge = (typeof CHALLENGES)[number];
+type Screen = "attract" | "track" | "driver" | "pedal-check" | "ready" | "run" | "result" | "leaderboard" | "calibration";
 type EngineAudioState = "idle" | "loading" | "ready" | "running" | "blocked" | "unavailable";
 type Calibration = {
   gamepadIndex: number | null;
@@ -473,6 +505,22 @@ function fullTrackSegment(fixture: TrackMapSource) {
   return fixture.segments.find((item) => item.type === "full") ?? fixture.segments[fixture.segments.length - 1];
 }
 
+function segmentForChallenge(fixture: TrackMapSource, challenge: Challenge): Segment {
+  const parts = challenge.sourceSegments
+    .map((name) => fixture.segments.find((segment) => segment.name.toLowerCase() === name.toLowerCase()))
+    .filter((segment): segment is Segment => Boolean(segment));
+
+  if (!parts.length) return fixture.segments[0];
+
+  return {
+    id: `${challenge.id}-${challenge.segmentName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    name: challenge.segmentName,
+    type: "segment",
+    startDistance: Math.min(...parts.map((segment) => segment.startDistance)),
+    endDistance: Math.max(...parts.map((segment) => segment.endDistance))
+  };
+}
+
 function flagForEvent(event: string) {
   return COUNTRY_FLAGS[event] ?? "";
 }
@@ -650,14 +698,18 @@ function scoreRun(reference: Sample[], run: RunSample[]): ScoreBreakdown {
   };
 }
 
-function leaderboardKey(track: TrackFixture, driver: DriverTrace, segment: Segment) {
-  return `${track.id}:${driver.code}:${segment.id}`;
+function leaderboardKey(challenge: Challenge) {
+  return `difficulty:${challenge.id}`;
 }
 
 function sortedLeaderboard(entries: LeaderboardEntry[], key: string) {
   return entries
     .filter((entry) => entry.key === key)
     .sort((a, b) => b.score - a.score || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+function fastestDriver(drivers: DriverTrace[]) {
+  return [...drivers].sort((a, b) => a.lapTime - b.lapTime)[0] ?? null;
 }
 
 function StandardCharteredLogo({ compact = false }: { compact?: boolean }) {
@@ -1332,7 +1384,6 @@ function AudioDiagnostics({ volume, setVolume }: { volume: number; setVolume: (v
 }
 
 function RunScreen({
-  driver,
   segment,
   reference,
   calibration,
@@ -1340,7 +1391,6 @@ function RunScreen({
   onComplete,
   onQuit
 }: {
-  driver: DriverTrace;
   segment: Segment;
   reference: Sample[];
   calibration: Calibration;
@@ -1526,7 +1576,7 @@ function RunScreen({
           <StandardCharteredHomeLogo compact />
         </div>
         <div>
-          <Eyebrow>Live challenge · {driver.code}</Eyebrow>
+          <Eyebrow>Live challenge · Pro Trace</Eyebrow>
           <strong>{segment.name}</strong>
         </div>
       </header>
@@ -1569,12 +1619,77 @@ function RunScreen({
   );
 }
 
+function PedalCheckScreen({
+  calibration,
+  onBack,
+  onReady
+}: {
+  calibration: Calibration;
+  onBack: () => void;
+  onReady: () => void;
+}) {
+  const pedals = useLivePedals(calibration);
+  const [throttleComplete, setThrottleComplete] = useState(false);
+  const [brakeComplete, setBrakeComplete] = useState(false);
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (pedals.throttle >= PEDAL_CHECK_THRESHOLD) setThrottleComplete(true);
+  }, [pedals.throttle]);
+
+  useEffect(() => {
+    if (throttleComplete && pedals.brake >= PEDAL_CHECK_THRESHOLD) setBrakeComplete(true);
+  }, [pedals.brake, throttleComplete]);
+
+  useEffect(() => {
+    if (!brakeComplete || startedRef.current) return;
+    startedRef.current = true;
+    onReady();
+  }, [brakeComplete, onReady]);
+
+  const ready = throttleComplete && brakeComplete;
+  const instruction = !throttleComplete
+    ? "Push throttle to 90%"
+    : !brakeComplete
+      ? "Push brake to 90%"
+      : "Pedals checked";
+
+  return (
+    <StepChrome
+      eyebrow="04 · Pedal check"
+      title={instruction}
+      italic="Confirm full travel before the timed trace starts."
+      onBack={onBack}
+      onNext={onReady}
+      nextLabel="Begin session"
+      nextDisabled={!ready}
+      nextProminent
+    >
+      <div className="ready-stage pedal-check-stage">
+        <div className="pedal-check-steps">
+          <div className={`pedal-check-step ${throttleComplete ? "complete" : ""}`}>
+            <span>01</span>
+            <strong>Throttle 90%</strong>
+            <small>{throttleComplete ? "Complete" : "Waiting for throttle"}</small>
+          </div>
+          <div className={`pedal-check-step ${brakeComplete ? "complete" : ""}`}>
+            <span>02</span>
+            <strong>Brake 90%</strong>
+            <small>{brakeComplete ? "Starting session" : throttleComplete ? "Waiting for brake" : "Complete throttle first"}</small>
+          </div>
+        </div>
+        <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
+      </div>
+    </StepChrome>
+  );
+}
+
 function ResultScreen({
   entry,
   ranking,
   breakdown,
-  driver,
   segment,
+  challenge,
   onInitials,
   onAgain,
   onLeaderboard,
@@ -1583,8 +1698,8 @@ function ResultScreen({
   entry: LeaderboardEntry;
   ranking: number;
   breakdown: ScoreBreakdown;
-  driver: DriverTrace;
   segment: Segment;
+  challenge: Challenge;
   onInitials: (initials: string) => void;
   onAgain: () => void;
   onLeaderboard: () => void;
@@ -1603,11 +1718,11 @@ function ResultScreen({
           <span className="step-caption">Standard Charter Challenge</span>
         </div>
         <div className="session-bug">
-          <Eyebrow tag>{driver.name} · {segment.name}</Eyebrow>
+          <Eyebrow tag>{challenge.trackName} · {segment.name}</Eyebrow>
           <span>Final classification</span>
         </div>
         <h1>{breakdown.score}% MATCH</h1>
-        <p className="italic-line">P{ranking} on this segment.</p>
+        <p className="italic-line">P{ranking} in {challenge.level}.</p>
         <div className="result-stats">
           <Stat label="Brake timing" value={`${breakdown.brakeTimingMs > 0 ? "+" : ""}${breakdown.brakeTimingMs} ms`} />
           <Stat label="Release shape" value={`${breakdown.releaseShape}%`} />
@@ -1646,14 +1761,12 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function LeaderboardScreen({
   entries,
-  driver,
-  segment,
+  challenge,
   onBack,
   onNextPlayer
 }: {
   entries: LeaderboardEntry[];
-  driver: DriverTrace;
-  segment: Segment;
+  challenge: Challenge;
   onBack: () => void;
   onNextPlayer: () => void;
 }) {
@@ -1667,7 +1780,7 @@ function LeaderboardScreen({
       </header>
       <section className="leaderboard-content">
         <div className="session-bug">
-          <Eyebrow tag>{driver.name} · {segment.name}</Eyebrow>
+          <Eyebrow tag>{challenge.level} · {challenge.trackName}</Eyebrow>
           <span>Local timing tower</span>
         </div>
         <h1>Local ranking.</h1>
@@ -1677,7 +1790,7 @@ function LeaderboardScreen({
               <span>{String(index + 1).padStart(2, "0")}</span>
               <strong>{entry.initials || "YOU"}</strong>
               <b>{entry.score}%</b>
-              <small>{new Date(entry.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
+              <small>{entry.trackName ?? challenge.trackName}, {entry.driverName ?? entry.driver}, {entry.segmentName ?? entry.segment}</small>
             </div>
           ))}
           {!entries.length ? <p className="small-copy">No runs yet. First clean lap writes the board.</p> : null}
@@ -1740,13 +1853,13 @@ function AppRoot() {
 
 function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const [screen, setScreen] = useState<Screen>("attract");
-  const [selectedFixtureId, setSelectedFixtureId] = useState(tracks[0]?.id ?? "");
+  const [selectedChallengeId, setSelectedChallengeId] = useState<DifficultyId>("beginner");
+  const selectedChallenge = CHALLENGES.find((item) => item.id === selectedChallengeId) ?? CHALLENGES[0];
+  const selectedFixtureId = selectedChallenge.fixtureId;
   const selectedTrack = tracks.find((item) => item.id === selectedFixtureId) ?? tracks[0]!;
   const [fixtureCache, setFixtureCache] = useState<Record<string, TrackFixture>>({});
   const [fixtureError, setFixtureError] = useState<string | null>(null);
   const fixture = fixtureCache[selectedFixtureId];
-  const [selectedDriverCode, setSelectedDriverCode] = useState("");
-  const [selectedSegmentId, setSelectedSegmentId] = useState(selectedTrack.segments[0]?.id ?? "");
   const [leaderboard, setLeaderboard] = useLocalStorageState<LeaderboardEntry[]>(LEADERBOARD_KEY, []);
   const [calibration, setCalibration] = useLocalStorageState<Calibration>(CALIBRATION_KEY, defaultCalibration);
   const [audioVolume, setAudioVolume] = useLocalStorageState<number>(AUDIO_VOLUME_KEY, 0.85);
@@ -1801,10 +1914,9 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   }, []);
 
   useEffect(() => {
-    setSelectedSegmentId(selectedTrack.segments[0]?.id ?? "");
     setLastEntryId(null);
     setFixtureError(null);
-  }, [selectedTrack.id, selectedTrack.segments]);
+  }, [selectedTrack.id]);
 
   useEffect(() => {
     if (fixtureCache[selectedTrack.id]) return;
@@ -1826,97 +1938,31 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
     };
   }, [fixtureCache, selectedTrack.dataPath, selectedTrack.id]);
 
-  useEffect(() => {
-    if (!fixture) return;
-    setSelectedDriverCode(fixture.drivers[0]?.code ?? "");
-  }, [fixture?.id]);
-
-  const driver = fixture?.drivers.find((item) => item.code === selectedDriverCode) ?? fixture?.drivers[0] ?? null;
-  const segment = fixture?.segments.find((item) => item.id === selectedSegmentId) ?? fixture?.segments[0] ?? null;
+  const driver = fixture ? fastestDriver(fixture.drivers) : null;
+  const segment = fixture ? segmentForChallenge(fixture, selectedChallenge) : null;
   const reference = useMemo(() => (driver && segment ? segmentSamples(driver, segment) : []), [driver, segment]);
-  const key = fixture && driver && segment ? leaderboardKey(fixture, driver, segment) : "";
+  const key = leaderboardKey(selectedChallenge);
   const currentBoard = key ? sortedLeaderboard(leaderboard, key) : [];
   const lastEntry = leaderboard.find((entry) => entry.id === lastEntryId);
-  const trackChoiceGroups = useMemo(
+  const challengeChoiceGroups = useMemo(
     () =>
-      groupedBy(tracks, (item) => continentForEvent(item.event), CONTINENT_ORDER).map((group) => ({
-        label: group.label,
-        items: group.items.map((item) => ({
-          id: item.id,
-          eyebrow: `${item.year} · ${item.session}`,
-          title: item.name,
-          flag: flagForEvent(item.event),
-          meta: `${item.driverCount} drivers · ${(trackDistance(item) / 1000).toFixed(1)} km`,
-          visual: <TrackMap fixture={item} segment={fullTrackSegment(item)} label={`${item.name} map`} />
-        }))
-      })),
+      [{
+        label: "Difficulty",
+        items: CHALLENGES.map((challenge) => {
+          const track = tracks.find((item) => item.id === challenge.fixtureId);
+          return {
+            id: challenge.id,
+            eyebrow: challenge.trackName,
+            title: challenge.level,
+            flag: track ? flagForEvent(track.event) : undefined,
+            accent: challenge.accent,
+            meta: track ? `${challenge.segmentName} · ${track.driverCount} drivers` : "Telemetry loading",
+            visual: track ? <TrackMap fixture={track} segment={segmentForChallenge(track, challenge)} label={`${challenge.trackName} map`} /> : undefined
+          };
+        })
+      }],
     [tracks]
   );
-  const driverChoiceGroups = useMemo(
-    () =>
-      fixture
-        ? groupedBy(fixture.drivers, (item) => item.team).map((group) => ({
-            label: group.label,
-            items: group.items.map((item) => ({
-              id: item.code,
-              title: item.name,
-              meta: `${item.code} · Lap ${item.lap} · ${formatLap(item.lapTime)}`,
-              accent: item.color,
-              visual: <DriverThumb driver={item} />
-            }))
-          }))
-        : [],
-    [fixture]
-  );
-  const segmentChoiceGroups = useMemo(
-    () =>
-      fixture
-        ? [
-            {
-              label: "Segments",
-              items: fixture.segments
-                .filter((item) => item.type !== "full")
-                .map((item) => ({
-                  id: item.id,
-                  eyebrow: "segment",
-                  title: item.name,
-                  accent: SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length],
-                  meta: `${Math.round(item.endDistance - item.startDistance)} m segment`,
-                  visual: (
-                    <TrackMap
-                      fixture={fixture}
-                      segment={item}
-                      accent={SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length]}
-                      label={`${item.name} map section`}
-                    />
-                  )
-                }))
-            },
-            {
-              label: "Full track",
-              items: fixture.segments
-                .filter((item) => item.type === "full")
-                .map((item) => ({
-                  id: item.id,
-                  eyebrow: "full",
-                  title: item.name,
-                  accent: SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length],
-                  meta: "Full lap trace",
-                  visual: (
-                    <TrackMap
-                      fixture={fixture}
-                      segment={item}
-                      accent={SEGMENT_ACCENTS[fixture.segments.indexOf(item) % SEGMENT_ACCENTS.length]}
-                      label={`${item.name} map section`}
-                    />
-                  )
-                }))
-            }
-          ].filter((group) => group.items.length)
-        : [],
-    [fixture]
-  );
-
   const openSecret = () => {
     setSecretClicks((clicks) => {
       const next = clicks + 1;
@@ -1944,18 +1990,18 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   if (screen === "track") {
     return (
       <StepChrome
-        eyebrow="01 · Track"
-        title="Choose the circuit."
+        eyebrow="01 · Difficulty"
+        title="Choose Level."
         onBack={() => setScreen("attract")}
         onSecret={openSecret}
       >
         <GroupedChoiceGrid
-          selected={selectedTrack.id}
+          selected={selectedChallenge.id}
           onSelect={(id) => {
-            setSelectedFixtureId(id);
-            setScreen("driver");
+            setSelectedChallengeId(id);
+            setScreen("pedal-check");
           }}
-          groups={trackChoiceGroups}
+          groups={challengeChoiceGroups}
         />
         {fixtureError ? <p className="small-copy">Telemetry load failed: {fixtureError}</p> : null}
       </StepChrome>
@@ -1967,12 +2013,12 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
       <StepChrome
         eyebrow="Telemetry"
         title="Loading circuit trace."
-        italic={selectedTrack.event}
+        italic={`${selectedChallenge.level} · ${selectedChallenge.trackName}`}
         onBack={() => setScreen("track")}
         onSecret={openSecret}
       >
         <div className="ready-stage">
-          <TrackMap fixture={selectedTrack} segment={fullTrackSegment(selectedTrack)} label={`${selectedTrack.name} map`} />
+          <TrackMap fixture={selectedTrack} segment={segmentForChallenge(selectedTrack, selectedChallenge)} label={`${selectedChallenge.trackName} map`} />
         </div>
       </StepChrome>
     );
@@ -1983,12 +2029,12 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
       <StepChrome
         eyebrow="Telemetry"
         title="Loading driver trace."
-        italic={selectedTrack.event}
+        italic={`${selectedChallenge.level} · ${selectedChallenge.trackName}`}
         onBack={() => setScreen("track")}
         onSecret={openSecret}
       >
         <div className="ready-stage">
-          <TrackMap fixture={selectedTrack} segment={fullTrackSegment(selectedTrack)} label={`${selectedTrack.name} map`} />
+          <TrackMap fixture={selectedTrack} segment={segmentForChallenge(selectedTrack, selectedChallenge)} label={`${selectedChallenge.trackName} map`} />
         </div>
       </StepChrome>
     );
@@ -2000,8 +2046,12 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
       key,
       initials: "YOU",
       score: breakdown.score,
-      driver: driver.code,
+      difficulty: selectedChallenge.id,
+      trackName: selectedChallenge.trackName,
+      driver: "REF-01",
+      driverName: "Pro Trace",
       segment: segment.id,
+      segmentName: segment.name,
       createdAt: new Date().toISOString(),
       breakdown
     };
@@ -2020,7 +2070,6 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   if (screen === "run") {
     return (
       <RunScreen
-        driver={driver}
         segment={segment}
         reference={reference}
         calibration={calibration}
@@ -2039,10 +2088,10 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         entry={lastEntry}
         ranking={ranking}
         breakdown={lastEntry.breakdown}
-        driver={driver}
         segment={segment}
+        challenge={selectedChallenge}
         onInitials={updateInitials}
-        onAgain={() => setScreen("ready")}
+        onAgain={() => setScreen("pedal-check")}
         onLeaderboard={() => setScreen("leaderboard")}
         onNextPlayer={resetToAttract}
       />
@@ -2053,61 +2102,32 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
     return (
       <LeaderboardScreen
         entries={currentBoard}
-        driver={driver}
-        segment={segment}
-        onBack={() => setScreen(lastEntry ? "result" : "ready")}
+        challenge={selectedChallenge}
+        onBack={() => setScreen(lastEntry ? "result" : "pedal-check")}
         onNextPlayer={resetToAttract}
       />
     );
   }
 
-  if (screen === "driver") {
+  if (screen === "pedal-check") {
     return (
-      <StepChrome
-        eyebrow="02 · Driver"
-        title="Pick your reference."
-        italic="Follow their throttle. Chase their brake release."
+      <PedalCheckScreen
+        calibration={calibration}
         onBack={() => setScreen("track")}
-      >
-        <GroupedChoiceGrid
-          selected={selectedDriverCode}
-          onSelect={(id) => {
-            setSelectedDriverCode(id);
-            setScreen("segment");
-          }}
-          groups={driverChoiceGroups}
-          className="driver-choice-groups"
-        />
-      </StepChrome>
-    );
-  }
-
-  if (screen === "segment") {
-    return (
-      <StepChrome
-        eyebrow="03 · Segment"
-        title="Choose the sector."
-        onBack={() => setScreen("driver")}
-      >
-        <GroupedChoiceGrid
-          selected={selectedSegmentId}
-          onSelect={(id) => {
-            setSelectedSegmentId(id);
-            setScreen("ready");
-          }}
-          groups={segmentChoiceGroups}
-        />
-      </StepChrome>
+        onReady={() => {
+          void primeAudio().finally(() => setScreen("run"));
+        }}
+      />
     );
   }
 
   if (screen === "ready") {
     return (
       <StepChrome
-        eyebrow="04 · Ready"
+        eyebrow="Ready"
         title="Your feet vs. theirs."
-        italic={`${flagForEvent(fixture.event)} ${fixture.name}. ${driver.name}. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
-        onBack={() => setScreen("segment")}
+        italic={`${flagForEvent(fixture.event)} ${selectedChallenge.trackName}. Pro Trace. ${segment.name}. ${reference[reference.length - 1].t.toFixed(1)} seconds.`}
+        onBack={() => setScreen("pedal-check")}
         onNext={() => {
           void primeAudio().finally(() => setScreen("run"));
         }}
