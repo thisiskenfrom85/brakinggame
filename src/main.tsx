@@ -1788,7 +1788,7 @@ function LeaderboardScreen({
           {entries.slice(0, 10).map((entry, index) => (
             <div className="leaderboard-row" key={entry.id}>
               <span>{String(index + 1).padStart(2, "0")}</span>
-              <strong>{entry.initials || "YOU"}</strong>
+              <strong>{entry.initials || "---"}</strong>
               <b>{entry.score}%</b>
               <small>{entry.trackName ?? challenge.trackName}, {entry.driverName ?? entry.driver}, {entry.segmentName ?? entry.segment}</small>
             </div>
@@ -2045,7 +2045,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
     const entry: LeaderboardEntry = {
       id: crypto.randomUUID(),
       key,
-      initials: "YOU",
+      initials: "",
       score: breakdown.score,
       difficulty: selectedChallenge.id,
       trackName: selectedChallenge.trackName,
@@ -2064,7 +2064,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const updateInitials = (initials: string) => {
     if (!lastEntryId) return;
     setLeaderboard(
-      (current) => capLeaderboard(current.map((entry) => (entry.id === lastEntryId ? { ...entry, initials: initials || "YOU" } : entry)))
+      (current) => capLeaderboard(current.map((entry) => (entry.id === lastEntryId ? { ...entry, initials } : entry)))
     );
   };
 

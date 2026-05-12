@@ -1,4 +1,7 @@
 :root {
+  --font-sans: "Segoe UI", Arial, "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --font-mono: Consolas, "Courier New", monospace;
   --bg: #f4f9ff;
   --fg: #2d2d34;
   --muted: rgba(45, 45, 52, 0.62);
@@ -16,7 +19,7 @@
   --success: #35d000;
   color: var(--fg);
   background: var(--bg);
-  font-family: Figtree, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 * {
@@ -27,6 +30,7 @@ html,
 body,
 #root {
   background: var(--dark-soft);
+  font-family: var(--font-sans);
   height: 100%;
   min-height: 100%;
   margin: 0;
@@ -147,7 +151,7 @@ button {
 }
 
 .spec-mark span {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.1em;
@@ -182,7 +186,7 @@ button {
 
 .italic-line {
   color: var(--fg);
-  font-family: Newsreader, Georgia, ui-serif, serif;
+  font-family: var(--font-serif);
   font-size: clamp(21px, 2.2vw, 34px);
   font-style: italic;
   font-weight: 600;
@@ -512,7 +516,7 @@ button {
   background: var(--driver-accent);
   bottom: 10px;
   color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 900;
   left: 12px;
@@ -619,7 +623,7 @@ button {
 
 .run-clock {
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 34px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -878,7 +882,7 @@ button {
 }
 
 .stat strong {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 22px;
 }
 
@@ -962,7 +966,7 @@ button {
 .leaderboard-row span,
 .leaderboard-row small {
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
@@ -973,7 +977,7 @@ button {
 
 .leaderboard-row b {
   color: var(--fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 20px;
   text-align: right;
 }
@@ -1264,7 +1268,7 @@ button {
 
 .step-caption {
   color: rgba(239, 239, 242, 0.72);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -1281,7 +1285,7 @@ button {
 .session-bug > span {
   border: 1px solid rgba(239, 239, 242, 0.22);
   color: rgba(239, 239, 242, 0.72);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -1320,7 +1324,7 @@ button {
 
 .button {
   border-radius: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1417,7 +1421,7 @@ button {
   border: 1px solid rgba(239, 239, 242, 0.2);
   bottom: 16px;
   color: rgba(239, 239, 242, 0.72);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -1502,7 +1506,7 @@ button {
 
 .run-command strong {
   color: var(--dark-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: clamp(18px, 3vw, 38px);
   font-weight: 900;
   letter-spacing: 0.02em;
@@ -1527,7 +1531,7 @@ button {
 .graph-labels strong {
   background: linear-gradient(135deg, var(--sc-blue), var(--sc-green));
   color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: clamp(13px, 1.7vw, 24px);
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -1541,7 +1545,7 @@ button {
   align-items: end;
   color: var(--sc-blue);
   display: grid;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   justify-self: end;
   line-height: 1;
   text-align: right;
@@ -1582,7 +1586,7 @@ button {
   background: rgba(239, 239, 242, 0.055);
   border: 1px solid rgba(239, 239, 242, 0.1);
   color: rgba(239, 239, 242, 0.44);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -1677,7 +1681,7 @@ button {
 
 .pedal-meter b {
   color: rgba(239, 239, 242, 0.78);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   text-align: right;
 }
