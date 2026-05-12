@@ -1,9 +1,13 @@
-const CACHE_NAME = "braketrace-v9";
+const CACHE_NAME = "braketrace-v13";
+const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
+const withBase = (path) => `${BASE_PATH}${path}`;
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
+  "/assets/standard-chartered-home.png",
+  "/assets/spec-secondary.svg",
   "/data/fixtures-2025-manifest.json",
   "/assets/audio/engine-loop.m4a",
   "/assets/drivers/ALB.webp",
@@ -34,9 +38,17 @@ self.addEventListener("install", (event) => {
     caches
       .open(CACHE_NAME)
       .then(async (cache) => {
-        await cache.addAll(APP_SHELL);
-        const manifest = await fetch("/data/fixtures-2025-manifest.json").then((response) => response.json());
-        await cache.addAll(manifest.map((fixture) => fixture.dataPath));
+        const manifestPath = withBase("/data/fixtures-2025-manifest.json");
+        await Promise.allSettled(APP_SHELL.map((asset) => cache.add(withBase(asset))));
+
+        const manifestResponse =
+          (await fetch(manifestPath).catch(() => null)) ||
+          (await cache.match(manifestPath));
+
+        if (manifestResponse) {
+          const manifest = await manifestResponse.json().catch(() => []);
+          await Promise.allSettled(manifest.map((fixture) => cache.add(withBase(fixture.dataPath))));
+        }
       })
       .then(() => self.skipWaiting())
   );
@@ -63,7 +75,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => caches.match("/index.html"));
+        .catch(() => caches.match(withBase("/index.html")));
     })
   );
 });

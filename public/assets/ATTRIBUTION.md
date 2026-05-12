@@ -1,6 +1,6 @@
 # Asset Attribution
 
-BrakeTrace bundles these assets for offline kiosk use.
+Standard Chartered Footwork Challenge bundles these assets for offline kiosk use.
 
 ## Driver Photos
 

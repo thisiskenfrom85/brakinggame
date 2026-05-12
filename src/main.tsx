@@ -16,10 +16,15 @@ import "./styles.css";
 const LEADERBOARD_KEY = "braketrace.leaderboard.v1";
 const CALIBRATION_KEY = "braketrace.calibration.v1";
 const AUDIO_VOLUME_KEY = "braketrace.audioVolume.v1";
+const LEADERBOARD_MAX_ENTRIES = 200;
+const LEADERBOARD_RECENT_ENTRIES = 50;
 const IDLE_MS = 90_000;
-const DRIVER_IMAGE_BASE = "/assets/drivers";
-const ENGINE_AUDIO_PATH = "/assets/audio/engine-loop.m4a";
-const SEGMENT_ACCENTS = ["#f06aa7", "#ffc300", "#58c7ff", "#65df9c", "#8e7cff", "#ff8a5c", "#7dd3fc"];
+const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
+const DRIVER_IMAGE_BASE = assetPath("assets/drivers");
+const ENGINE_AUDIO_PATH = assetPath("assets/audio/engine-loop.m4a");
+const SPEC_SECONDARY_LOGO_PATH = assetPath("assets/spec-secondary.svg");
+const STANDARD_CHARTERED_HOME_LOGO_PATH = assetPath("assets/standard-chartered-home.png");
+const SEGMENT_ACCENTS = ["#0875e1", "#35d000", "#35b8ff", "#00b988", "#79e500", "#2e8fff", "#62dfb0"];
 const PS4_L2_BUTTON = 6;
 const PS4_R2_BUTTON = 7;
 const COUNTRY_FLAGS: Record<string, string> = {
@@ -420,10 +425,28 @@ function useLocalStorageState<T>(key: string, fallback: T) {
   });
 
   useEffect(() => {
-    localStorage.setItem(key, JSON.stringify(value));
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Private browsing and event-floor machines can reject storage writes.
+    }
   }, [key, value]);
 
   return [value, setValue] as const;
+}
+
+function capLeaderboard(entries: LeaderboardEntry[]) {
+  if (entries.length <= LEADERBOARD_MAX_ENTRIES) return entries;
+
+  const byNewest = [...entries].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const recent = byNewest.slice(0, LEADERBOARD_RECENT_ENTRIES);
+  const recentIds = new Set(recent.map((entry) => entry.id));
+  const highValue = entries
+    .filter((entry) => !recentIds.has(entry.id))
+    .sort((a, b) => b.score - a.score || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, LEADERBOARD_MAX_ENTRIES - recent.length);
+
+  return [...recent, ...highValue];
 }
 
 function segmentSamples(driver: DriverTrace, segment: Segment) {
@@ -637,11 +660,37 @@ function sortedLeaderboard(entries: LeaderboardEntry[], key: string) {
     .sort((a, b) => b.score - a.score || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
-function SpecLogo({ onSecret }: { onSecret?: () => void }) {
+function StandardCharteredLogo({ compact = false }: { compact?: boolean }) {
   return (
-    <button className="brand-mark" onClick={onSecret} aria-label="SPEC Simulations">
-      <span />
-      SPEC
+    <div className={`sc-lockup ${compact ? "sc-lockup-compact" : ""}`} aria-label="Standard Chartered">
+      <svg className="sc-symbol" viewBox="0 0 96 96" aria-hidden="true">
+        <path className="sc-blue" d="M44 5c9-6 21 5 15 15L39 51l37 22c10 6 5 21-7 21H17c-12 0-18-15-8-22l21-14L9 44C-1 37 4 22 16 22h21L44 5Z" />
+        <path className="sc-green" d="M53 37l21-13c10-6 22 5 16 16l-7 12c-4 8-14 10-22 5l-16-10 8-10ZM43 59 22 72c-10 6-22-5-16-16l7-12c4-8 14-10 22-5l16 10-8 10Z" />
+        <path className="sc-cut" d="M24 29h29L40 49l25 15H36L9 47l15-18Z" />
+      </svg>
+      <span>
+        <strong>standard<br />chartered</strong>
+        <b>渣打银行</b>
+      </span>
+    </div>
+  );
+}
+
+function StandardCharteredHomeLogo({ compact = false }: { compact?: boolean }) {
+  return (
+    <img
+      className={`sc-home-logo ${compact ? "sc-home-logo-compact" : ""}`}
+      src={STANDARD_CHARTERED_HOME_LOGO_PATH}
+      alt="Standard Chartered 渣打银行"
+    />
+  );
+}
+
+function SpecLogo({ onSecret, iconOnly = false }: { onSecret?: () => void; iconOnly?: boolean }) {
+  return (
+    <button className={`spec-mark ${iconOnly ? "spec-mark-icon-only" : ""}`} onClick={onSecret} aria-label="SPEC Simulations">
+      <img src={SPEC_SECONDARY_LOGO_PATH} alt="" />
+      {!iconOnly && <span>SPEC Simulations</span>}
     </button>
   );
 }
@@ -695,18 +744,23 @@ function StepChrome({
 }) {
   return (
     <main className="step-screen">
+      <div className="broadcast-grid-bg" aria-hidden="true" />
       <header className="topbar">
         <button className="back-button" onClick={onBack} disabled={!onBack}>
           {onBack ? "Back" : ""}
         </button>
-        <SpecLogo onSecret={onSecret} />
-        <Eyebrow>{eyebrow}</Eyebrow>
+        <StandardCharteredHomeLogo compact />
+        <div className="topbar-side">
+          <SpecLogo onSecret={onSecret} iconOnly />
+        </div>
       </header>
 
       <section className="step-content">
-        <Eyebrow tag>{eyebrow}</Eyebrow>
-        <h1>{title}</h1>
-        {italic ? <p className="italic-line">{italic}</p> : null}
+        <div className="step-title-block">
+          <span className="step-caption">Standard Chartered challenge</span>
+          <h1>{title}</h1>
+          {italic ? <p className="italic-line">{italic}</p> : null}
+        </div>
         <div className="step-options">{children}</div>
       </section>
 
@@ -742,9 +796,12 @@ function ChoiceGrid<T extends string>({
           <span className="choice-rule" />
           {item.flag ? <span className="choice-flag">{item.flag}</span> : null}
           {item.visual ? <span className="choice-visual">{item.visual}</span> : null}
-          {item.eyebrow ? <span className="eyebrow">{item.eyebrow}</span> : null}
-          <strong>{item.title}</strong>
-          {item.meta ? <small>{item.meta}</small> : null}
+          <span className="choice-copy">
+            {item.eyebrow ? <span className="eyebrow">{item.eyebrow}</span> : null}
+            <strong>{item.title}</strong>
+            {item.meta ? <small>{item.meta}</small> : null}
+          </span>
+          <span className="choice-status">{selected === item.id ? "Locked" : "Select"}</span>
         </button>
       ))}
     </div>
@@ -754,7 +811,8 @@ function ChoiceGrid<T extends string>({
 function GroupedChoiceGrid<T extends string>({
   groups,
   selected,
-  onSelect
+  onSelect,
+  className = ""
 }: {
   groups: {
     label: string;
@@ -762,9 +820,10 @@ function GroupedChoiceGrid<T extends string>({
   }[];
   selected: T;
   onSelect: (id: T) => void;
+  className?: string;
 }) {
   return (
-    <div className="choice-groups">
+    <div className={`choice-groups ${className}`}>
       {groups.map((group) => (
         <section className="choice-group" key={group.label}>
           <div className="choice-group-label">
@@ -830,13 +889,15 @@ function DriverThumb({ driver }: { driver: DriverTrace }) {
 function PedalMeters({ brake, throttle }: { brake: number; throttle: number }) {
   return (
     <div className="pedal-meters">
-      <div className="pedal-meter pedal-meter-brake">
-        <span>Brake</span>
-        <div><i style={{ transform: `scaleY(${brake})` }} /></div>
-      </div>
       <div className="pedal-meter pedal-meter-throttle">
         <span>Throttle</span>
-        <div><i style={{ transform: `scaleY(${throttle})` }} /></div>
+        <div><i style={{ transform: `scaleX(${throttle})` }} /></div>
+        <b>{Math.round(throttle * 100)}</b>
+      </div>
+      <div className="pedal-meter pedal-meter-brake">
+        <span>Brake</span>
+        <div><i style={{ transform: `scaleX(${brake})` }} /></div>
+        <b>{Math.round(brake * 100)}</b>
       </div>
     </div>
   );
@@ -845,11 +906,21 @@ function PedalMeters({ brake, throttle }: { brake: number; throttle: number }) {
 function TelemetryGraph({
   reference,
   run,
-  progress
+  progress,
+  variant = "live",
+  readout,
+  timeRemaining,
+  brake,
+  throttle
 }: {
   reference: Sample[];
   run: RunSample[];
   progress: number;
+  variant?: "preview" | "live";
+  readout?: string;
+  timeRemaining?: number;
+  brake?: number;
+  throttle?: number;
 }) {
   const width = 1000;
   const height = 440;
@@ -880,37 +951,58 @@ function TelemetryGraph({
   const playhead = padding + clamp((focusTime - windowStart) / windowSpan) * (width - padding * 2);
 
   return (
-    <div className="graph-shell">
+    <div className={`graph-shell graph-shell-${variant}`}>
       <div className="graph-labels">
-        <span>Reference</span>
-        <span>You</span>
+        <span>Reference trace</span>
+        <strong>{readout ?? "Brake / throttle"}</strong>
+        {typeof timeRemaining === "number" ? (
+          <span className="graph-clock">
+            <b>{Math.max(0, timeRemaining).toFixed(1)}</b>
+            <small>Time remaining</small>
+          </span>
+        ) : (
+          <span>Your input</span>
+        )}
       </div>
-      <svg className="telemetry-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Brake and throttle trace">
-        <rect x="0" y="0" width={width} height={height} rx="8" />
-        {[0, 0.25, 0.5, 0.75, 1].map((line) => (
-          <React.Fragment key={`grid-${line}`}>
-            <line
-              x1={padding + line * (width - padding * 2)}
-              x2={padding + line * (width - padding * 2)}
-              y1={padding}
-              y2={height - padding}
-            />
-            <line
-              x1={padding}
-              x2={width - padding}
-              y1={padding + line * (height - padding * 2)}
-              y2={padding + line * (height - padding * 2)}
-            />
-          </React.Fragment>
-        ))}
-        <polyline className="trace trace-brake-ref" points={points(reference, "brake")} />
-        <polyline className="trace trace-throttle-ref" points={points(reference, "throttle", 100)} />
-        <polyline className="trace trace-brake-user" points={points(run, "brake")} />
-        <polyline className="trace trace-throttle-user" points={points(run, "throttle")} />
-        <line className="playhead" x1={playhead} x2={playhead} y1={padding} y2={height - padding} />
-        <text x={padding} y={height - 18}>BRAKE</text>
-        <text x={width - padding - 90} y={height - 18}>THROTTLE</text>
-      </svg>
+      <div className={`telemetry-live-layout ${typeof brake === "number" && typeof throttle === "number" ? "" : "telemetry-live-layout-single"}`}>
+        <div className="telemetry-stage">
+          <div className="telemetry-zone telemetry-zone-brake">Brake phase</div>
+          <div className="telemetry-zone telemetry-zone-release">Release window</div>
+          <div className="telemetry-progress" style={{ transform: `scaleX(${clamp(progress)})` }} />
+          <svg className="telemetry-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Brake and throttle trace">
+            <rect x="0" y="0" width={width} height={height} rx="8" />
+            {[0, 0.25, 0.5, 0.75, 1].map((line) => (
+              <React.Fragment key={`grid-${line}`}>
+                <line
+                  x1={padding + line * (width - padding * 2)}
+                  x2={padding + line * (width - padding * 2)}
+                  y1={padding}
+                  y2={height - padding}
+                />
+                <line
+                  x1={padding}
+                  x2={width - padding}
+                  y1={padding + line * (height - padding * 2)}
+                  y2={padding + line * (height - padding * 2)}
+                />
+              </React.Fragment>
+            ))}
+            <polyline className="trace trace-brake-ref" points={points(reference, "brake")} />
+            <polyline className="trace trace-throttle-ref" points={points(reference, "throttle", 100)} />
+            <polyline className="trace trace-brake-user" points={points(run, "brake")} />
+            <polyline className="trace trace-throttle-user" points={points(run, "throttle")} />
+            <line className="playhead" x1={playhead} x2={playhead} y1={padding} y2={height - padding} />
+            <circle className="playhead-dot" cx={playhead} cy={padding + 12} r="9" />
+            <text x={padding} y={height - 18}>BRAKE</text>
+            <text x={width - padding - 90} y={height - 18}>THROTTLE</text>
+          </svg>
+        </div>
+        {typeof brake === "number" && typeof throttle === "number" ? (
+          <div className="graph-pedal-panel">
+            <PedalMeters brake={brake} throttle={throttle} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1020,7 +1112,7 @@ function CalibrationScreen({
     <main className="calibration-screen">
       <header className="topbar">
         <button className="back-button" onClick={onDone}>Close</button>
-        <SpecLogo />
+        <StandardCharteredLogo compact />
         <Eyebrow>Operator</Eyebrow>
       </header>
       <section className="calibration-panel">
@@ -1267,9 +1359,11 @@ function RunScreen({
   const audioReadyRef = useRef(false);
   const countdownDoneRef = useRef(false);
   const elapsedRef = useRef(0);
-  const lastFrameAt = useRef<number | null>(null);
   const lastPaintAt = useRef(0);
   const lastSampleAt = useRef(0);
+  const runStartedAt = useRef<number | null>(null);
+  const pauseStartedAt = useRef<number | null>(null);
+  const totalPausedMs = useRef(0);
   const runRef = useRef<RunSample[]>([]);
   const completedRef = useRef(false);
   const audioRef = useRef<EngineAudioController | null>(null);
@@ -1281,6 +1375,14 @@ function RunScreen({
 
   useEffect(() => {
     pausedRef.current = paused;
+    if (paused) {
+      pauseStartedAt.current = performance.now();
+      return;
+    }
+    if (pauseStartedAt.current !== null) {
+      totalPausedMs.current += performance.now() - pauseStartedAt.current;
+      pauseStartedAt.current = null;
+    }
   }, [paused]);
 
   useEffect(() => {
@@ -1306,11 +1408,10 @@ function RunScreen({
       return;
     }
     controller.resume().then(() => {
-      const running = controller.state === "running";
-      audioReadyRef.current = running || controller.state === "unavailable";
+      audioReadyRef.current = true;
       setAudioState(controller.state);
     }).catch(() => {
-      audioReadyRef.current = false;
+      audioReadyRef.current = true;
       setAudioState("blocked");
     });
   }, []);
@@ -1318,7 +1419,7 @@ function RunScreen({
   useEffect(() => {
     const ctx = getSharedAudioContext();
     let audioCancelled = false;
-    audioReadyRef.current = false;
+    audioReadyRef.current = true;
     if (ctx) {
       const controller = new EngineAudioController(ctx, audioVolume);
       audioRef.current = controller;
@@ -1327,8 +1428,7 @@ function RunScreen({
         .then(() => controller.start())
         .then(() => {
           if (audioCancelled) return;
-          const running = controller.state === "running";
-          audioReadyRef.current = running;
+          audioReadyRef.current = true;
           setAudioState(controller.state);
         })
         .catch(() => {
@@ -1345,14 +1445,13 @@ function RunScreen({
 
     let frame = 0;
     const tick = (now: number) => {
-      if (lastFrameAt.current === null) lastFrameAt.current = now;
-      const delta = Math.min(0.08, Math.max(0, (now - lastFrameAt.current) / 1000));
-      lastFrameAt.current = now;
-
       const runActive = countdownDoneRef.current && audioReadyRef.current;
 
       if (!pausedRef.current && runActive) {
-        elapsedRef.current += delta;
+        if (runStartedAt.current === null) {
+          runStartedAt.current = now;
+        }
+        elapsedRef.current = Math.max(0, (now - runStartedAt.current - totalPausedMs.current) / 1000);
       }
 
       const t = elapsedRef.current;
@@ -1400,31 +1499,38 @@ function RunScreen({
   }, [audioVolume]);
 
   const ref = sampleAt(reference, elapsed);
-  const prompt = ref.brake > 0.5 ? "Brake" : ref.throttle > 50 ? "Throttle" : "Release";
+  const pedalDelta = pedals.brake - ref.brake;
+  const prompt = ref.brake > 0.5 ? "Brake now" : ref.throttle > 50 ? "Power" : "Release";
+  const deltaReadout = countdown !== null
+    ? "Grid set"
+    : Math.abs(pedalDelta) < 0.12
+      ? "Delta good"
+      : pedalDelta > 0
+        ? "Too much brake"
+        : "Late brake";
   const command = countdown !== null
     ? "Get ready"
     : audioState === "loading"
       ? "Engine loading"
       : audioState === "blocked"
-        ? "Tap to enable engine"
+        ? "Trace live · audio blocked"
         : paused
           ? "Paused"
           : prompt;
 
   return (
     <main className="run-screen">
+      <div className="broadcast-grid-bg" aria-hidden="true" />
       <header className="run-header">
-        <SpecLogo />
+        <div className="run-brand-stack">
+          <StandardCharteredHomeLogo compact />
+        </div>
         <div>
-          <Eyebrow>{driver.name}</Eyebrow>
+          <Eyebrow>Live challenge · {driver.code}</Eyebrow>
           <strong>{segment.name}</strong>
         </div>
-        <div className="run-clock">{Math.max(0, duration - elapsed).toFixed(1)}</div>
       </header>
       <section className="stage">
-        <div className="run-command">
-          <Eyebrow tag>{command}</Eyebrow>
-        </div>
         {countdown !== null ? (
           <div className="countdown-overlay" aria-live="polite">
             {countdown}
@@ -1435,7 +1541,15 @@ function RunScreen({
             Tap to enable engine
           </button>
         ) : null}
-        <TelemetryGraph reference={reference} run={run} progress={clamp(elapsed / duration)} />
+        <TelemetryGraph
+          reference={reference}
+          run={run}
+          progress={clamp(elapsed / duration)}
+          readout={`${command} · ${deltaReadout}`}
+          timeRemaining={duration - elapsed}
+          brake={pedals.brake}
+          throttle={pedals.throttle}
+        />
       </section>
       <footer className="run-footer">
         <div className="run-control">
@@ -1449,7 +1563,6 @@ function RunScreen({
             Engine {audioState}
           </Button>
         </div>
-        <PedalMeters brake={pedals.brake} throttle={pedals.throttle} />
         <div className="run-hint">L2 throttle · R2 brake · Space/W keyboard</div>
       </footer>
     </main>
@@ -1479,13 +1592,20 @@ function ResultScreen({
 }) {
   return (
     <main className="result-screen">
+      <div className="broadcast-grid-bg" aria-hidden="true" />
       <header className="topbar">
         <span />
-        <SpecLogo />
+        <StandardCharteredHomeLogo compact />
         <Eyebrow>Result</Eyebrow>
       </header>
       <section className="result-content">
-        <Eyebrow tag>{driver.name} · {segment.name}</Eyebrow>
+        <div className="result-title-block">
+          <span className="step-caption">Standard Charter Challenge</span>
+        </div>
+        <div className="session-bug">
+          <Eyebrow tag>{driver.name} · {segment.name}</Eyebrow>
+          <span>Final classification</span>
+        </div>
         <h1>{breakdown.score}% MATCH</h1>
         <p className="italic-line">P{ranking} on this segment.</p>
         <div className="result-stats">
@@ -1493,18 +1613,22 @@ function ResultScreen({
           <Stat label="Release shape" value={`${breakdown.releaseShape}%`} />
           <Stat label="Throttle pickup" value={`${breakdown.throttlePickup}%`} />
         </div>
-        <label className="initials-field">
-          Initials
-          <input
-            value={entry.initials}
-            maxLength={3}
-            onChange={(event) => onInitials(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-          />
-        </label>
-        <div className="result-actions">
-          <Button onClick={onAgain}>Run again</Button>
-          <Button variant="secondary" onClick={onLeaderboard}>Leaderboard</Button>
-          <Button variant="ghost" onClick={onNextPlayer}>Next player</Button>
+        <div className="result-next-panel">
+          <div className="result-save-row">
+            <label className="initials-field">
+              <span>Initials</span>
+              <input
+                value={entry.initials}
+                maxLength={3}
+                onChange={(event) => onInitials(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+              />
+            </label>
+            <Button variant="secondary" onClick={onLeaderboard}>Leaderboard</Button>
+          </div>
+          <div className="result-actions">
+            <Button onClick={onAgain}>Run again</Button>
+            <Button variant="ghost" onClick={onNextPlayer}>Next player</Button>
+          </div>
         </div>
       </section>
     </main>
@@ -1535,13 +1659,17 @@ function LeaderboardScreen({
 }) {
   return (
     <main className="leaderboard-screen">
+      <div className="broadcast-grid-bg" aria-hidden="true" />
       <header className="topbar">
         <button className="back-button" onClick={onBack}>Back</button>
-        <SpecLogo />
+        <StandardCharteredHomeLogo compact />
         <Eyebrow>Leaderboard</Eyebrow>
       </header>
       <section className="leaderboard-content">
-        <Eyebrow tag>{driver.name} · {segment.name}</Eyebrow>
+        <div className="session-bug">
+          <Eyebrow tag>{driver.name} · {segment.name}</Eyebrow>
+          <span>Local timing tower</span>
+        </div>
         <h1>Local ranking.</h1>
         <div className="leaderboard-list">
           {entries.slice(0, 10).map((entry, index) => (
@@ -1565,7 +1693,7 @@ function AppRoot() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/data/fixtures-2025-manifest.json")
+    fetch(assetPath("data/fixtures-2025-manifest.json"))
       .then((response) => {
         if (!response.ok) throw new Error(`Telemetry failed: ${response.status}`);
         return response.json();
@@ -1580,9 +1708,11 @@ function AppRoot() {
   if (error) {
     return (
       <main className="attract-screen">
+        <div className="broadcast-grid-bg" aria-hidden="true" />
         <section className="attract-content">
+          <StandardCharteredHomeLogo />
           <SpecLogo />
-          <Eyebrow tag>SPEC Simulations</Eyebrow>
+          <Eyebrow tag>Standard Chartered</Eyebrow>
           <h1>Telemetry missing</h1>
           <p className="italic-line">{error}</p>
         </section>
@@ -1593,9 +1723,11 @@ function AppRoot() {
   if (!tracks) {
     return (
       <main className="attract-screen">
+        <div className="broadcast-grid-bg" aria-hidden="true" />
         <section className="attract-content">
+          <StandardCharteredHomeLogo />
           <SpecLogo />
-          <Eyebrow tag>SPEC Simulations</Eyebrow>
+          <Eyebrow tag>Standard Chartered</Eyebrow>
           <h1>Loading trace</h1>
           <p className="italic-line">Preparing the braking zone.</p>
         </section>
@@ -1651,9 +1783,21 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   }, []);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator && import.meta.env.PROD) {
-      navigator.serviceWorker.register("/sw.js");
+    if (!("serviceWorker" in navigator)) return;
+
+    if (import.meta.env.PROD) {
+      navigator.serviceWorker.register(assetPath("sw.js"), { scope: import.meta.env.BASE_URL });
+      return;
     }
+
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .then(() => ("caches" in window ? caches.keys() : Promise.resolve([])))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("braketrace-")).map((key) => caches.delete(key))))
+      .catch(() => {
+        // Dev cleanup is best-effort; the app should still boot if browser storage APIs are blocked.
+      });
   }, []);
 
   useEffect(() => {
@@ -1665,7 +1809,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   useEffect(() => {
     if (fixtureCache[selectedTrack.id]) return;
     let cancelled = false;
-    fetch(selectedTrack.dataPath)
+    fetch(assetPath(selectedTrack.dataPath))
       .then((response) => {
         if (!response.ok) throw new Error(`Telemetry failed: ${response.status}`);
         return response.json();
@@ -1715,7 +1859,6 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
             label: group.label,
             items: group.items.map((item) => ({
               id: item.code,
-              eyebrow: item.team,
               title: item.name,
               meta: `${item.code} · Lap ${item.lap} · ${formatLap(item.lapTime)}`,
               accent: item.color,
@@ -1862,7 +2005,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
       createdAt: new Date().toISOString(),
       breakdown
     };
-    setLeaderboard([entry, ...leaderboard]);
+    setLeaderboard((current) => capLeaderboard([entry, ...current]));
     setLastEntryId(entry.id);
     setScreen("result");
   };
@@ -1870,7 +2013,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
   const updateInitials = (initials: string) => {
     if (!lastEntryId) return;
     setLeaderboard(
-      leaderboard.map((entry) => (entry.id === lastEntryId ? { ...entry, initials: initials || "YOU" } : entry))
+      (current) => capLeaderboard(current.map((entry) => (entry.id === lastEntryId ? { ...entry, initials: initials || "YOU" } : entry)))
     );
   };
 
@@ -1933,6 +2076,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
             setScreen("segment");
           }}
           groups={driverChoiceGroups}
+          className="driver-choice-groups"
         />
       </StepChrome>
     );
@@ -1971,7 +2115,7 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
         nextProminent
       >
         <div className="ready-stage">
-          <TelemetryGraph reference={reference} run={[]} progress={0} />
+          <TelemetryGraph reference={reference} run={[]} progress={0} variant="preview" readout="Broadcast trace armed" />
           <PedalMeters brake={livePedals.brake} throttle={livePedals.throttle} />
         </div>
       </StepChrome>
@@ -1980,12 +2124,12 @@ function BrakeTraceApp({ tracks }: { tracks: TrackFixtureSummary[] }) {
 
   return (
     <main className="attract-screen">
-      <button className="offline-pill" onClick={openSecret}>{livePedals.connected ? "Pedals ready" : "Offline"}</button>
+      <div className="broadcast-grid-bg" aria-hidden="true" />
       <section className="attract-content">
-        <SpecLogo onSecret={openSecret} />
-        <Eyebrow tag>SPEC Simulations</Eyebrow>
-        <h1>Match the feet</h1>
-        <p className="italic-line">Step into a Formula 1 braking zone.</p>
+        <StandardCharteredHomeLogo />
+        <h1>Footwork Challenge</h1>
+        <p className="italic-line">Brake late. Release clean. Power out.</p>
+        <SpecLogo onSecret={openSecret} iconOnly />
         <Button onClick={() => setScreen("track")}>Start challenge</Button>
       </section>
     </main>
