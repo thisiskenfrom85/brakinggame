@@ -1,6 +1,6 @@
 # Asset Attribution
 
-Standard Chartered Footwork Challenge bundles these assets for offline kiosk use.
+SPEC Footwork Challenge bundles these assets for offline kiosk use.
 
 ## Driver Photos
 

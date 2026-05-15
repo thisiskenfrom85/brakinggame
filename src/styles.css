@@ -9,9 +9,9 @@
   --border-strong: rgba(45, 45, 52, 0.3);
   --card: #ffffff;
   --accent: #0875e1;
-  --sc-blue: #0875e1;
-  --sc-green: #35d000;
-  --sc-ink: #4f5157;
+  --brand-blue: #0875e1;
+  --brand-green: #35d000;
+  --brand-ink: #4f5157;
   --dark: #111922;
   --dark-soft: #07111c;
   --dark-text: #efeff2;
@@ -54,83 +54,6 @@ button {
   background: var(--bg);
 }
 
-.sc-lockup {
-  align-items: center;
-  color: var(--dark-text);
-  display: inline-flex;
-  gap: 18px;
-  line-height: 0.88;
-}
-
-.sc-symbol {
-  flex: 0 0 auto;
-  height: 106px;
-  overflow: visible;
-  width: 106px;
-}
-
-.sc-blue {
-  fill: var(--sc-blue);
-}
-
-.sc-green {
-  fill: var(--sc-green);
-}
-
-.sc-cut {
-  fill: #fff;
-}
-
-.sc-lockup strong {
-  color: inherit;
-  display: block;
-  font-size: clamp(56px, 7vw, 92px);
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: lowercase;
-}
-
-.sc-lockup b {
-  color: inherit;
-  display: block;
-  font-size: clamp(32px, 4vw, 56px);
-  font-weight: 800;
-  letter-spacing: 0;
-  line-height: 1.08;
-  margin-top: 10px;
-}
-
-.sc-lockup-compact {
-  gap: 10px;
-}
-
-.sc-lockup-compact .sc-symbol {
-  height: 42px;
-  width: 42px;
-}
-
-.sc-lockup-compact strong {
-  font-size: 20px;
-}
-
-.sc-lockup-compact b {
-  font-size: 13px;
-  margin-top: 3px;
-}
-
-.sc-home-logo {
-  display: block;
-  height: auto;
-  max-height: clamp(180px, 28vh, 270px);
-  object-fit: contain;
-  width: min(760px, 86vw);
-}
-
-.sc-home-logo-compact {
-  max-height: 76px;
-  width: min(260px, 24vw);
-}
-
 .spec-mark {
   align-items: center;
   appearance: none;
@@ -139,20 +62,20 @@ button {
   color: rgba(239, 239, 242, 0.72);
   cursor: pointer;
   display: inline-flex;
-  gap: 9px;
-  min-height: 34px;
-  padding: 6px 9px;
+  gap: 5px;
+  min-height: 18px;
+  padding: 3px 5px;
 }
 
 .spec-mark img {
   display: block;
-  height: 18px;
+  height: 9px;
   width: auto;
 }
 
 .spec-mark span {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 5px;
   font-weight: 900;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -166,7 +89,15 @@ button {
 }
 
 .spec-mark-icon-only img {
-  height: clamp(16px, 2vh, 24px);
+  height: clamp(8px, 1vh, 12px);
+}
+
+.spec-mark-compact img {
+  height: clamp(19px, 2.9vh, 31px);
+}
+
+.spec-mark-hero img {
+  height: clamp(38px, 6.5vh, 66px);
 }
 
 .eyebrow {
@@ -593,7 +524,7 @@ button {
 
 .pedal-check-step.complete {
   border-color: rgba(53, 208, 0, 0.8);
-  box-shadow: inset 4px 0 0 var(--sc-green);
+  box-shadow: inset 4px 0 0 var(--brand-green);
 }
 
 .run-screen {
@@ -646,26 +577,6 @@ button {
   min-width: 190px;
   padding: 9px 22px;
   text-align: center;
-}
-
-.audio-unlock {
-  appearance: none;
-  background: var(--accent);
-  border: 0;
-  border-radius: 999px;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 16px;
-  font-weight: 900;
-  left: 50%;
-  letter-spacing: 0.08em;
-  padding: 18px 28px;
-  position: absolute;
-  text-transform: uppercase;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 4;
 }
 
 .countdown-overlay {
@@ -758,7 +669,7 @@ button {
 }
 
 .playhead-dot {
-  fill: var(--sc-green);
+  fill: var(--brand-green);
   filter: drop-shadow(0 0 14px rgba(53, 208, 0, 0.85));
 }
 
@@ -1212,30 +1123,6 @@ button {
   text-shadow: 0 18px 80px rgba(0, 0, 0, 0.38);
 }
 
-.attract-content .sc-lockup {
-  flex-direction: column;
-  gap: 10px;
-  justify-content: center;
-}
-
-.attract-content .sc-lockup span {
-  text-align: center;
-}
-
-.attract-content .sc-symbol {
-  height: clamp(70px, 9vh, 92px);
-  width: clamp(70px, 9vh, 92px);
-}
-
-.attract-content .sc-lockup strong {
-  font-size: clamp(46px, 7vh, 76px);
-}
-
-.attract-content .sc-lockup b {
-  font-size: clamp(28px, 4.5vh, 48px);
-  margin-top: 6px;
-}
-
 .attract-content {
   gap: clamp(20px, 3vh, 34px);
   justify-content: center;
@@ -1308,7 +1195,7 @@ button {
 }
 
 .eyebrow-tag {
-  background: linear-gradient(135deg, var(--sc-blue), var(--sc-green));
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-green));
   color: #fff !important;
 }
 
@@ -1330,7 +1217,7 @@ button {
 }
 
 .button-primary {
-  background: linear-gradient(135deg, var(--sc-blue), var(--sc-green));
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-green));
   box-shadow: 0 18px 55px rgba(8, 117, 225, 0.22), 0 10px 42px rgba(53, 208, 0, 0.16);
   color: #fff;
 }
@@ -1432,7 +1319,7 @@ button {
 }
 
 .choice.selected .choice-status {
-  background: linear-gradient(135deg, var(--sc-blue), var(--sc-green));
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-green));
   border-color: transparent;
   color: #fff;
 }
@@ -1529,7 +1416,7 @@ button {
 }
 
 .graph-labels strong {
-  background: linear-gradient(135deg, var(--sc-blue), var(--sc-green));
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-green));
   color: #fff;
   font-family: var(--font-mono);
   font-size: clamp(13px, 1.7vw, 24px);
@@ -1543,7 +1430,7 @@ button {
 
 .graph-clock {
   align-items: end;
-  color: var(--sc-blue);
+  color: var(--brand-blue);
   display: grid;
   font-family: var(--font-mono);
   justify-self: end;
@@ -1606,7 +1493,7 @@ button {
 }
 
 .telemetry-progress {
-  background: linear-gradient(90deg, var(--sc-blue), var(--sc-green));
+  background: linear-gradient(90deg, var(--brand-blue), var(--brand-green));
   bottom: 0;
   height: 5px;
   left: 0;
@@ -1716,7 +1603,7 @@ button {
 
 .leaderboard-row:first-child {
   border-color: rgba(53, 208, 0, 0.8);
-  box-shadow: inset 4px 0 0 var(--sc-green);
+  box-shadow: inset 4px 0 0 var(--brand-green);
 }
 
 @media (max-width: 820px) {

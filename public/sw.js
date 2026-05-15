@@ -1,4 +1,4 @@
-const CACHE_NAME = "braketrace-v13";
+const CACHE_NAME = "braketrace-v15";
 const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${BASE_PATH}${path}`;
 const APP_SHELL = [
@@ -6,10 +6,9 @@ const APP_SHELL = [
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
-  "/assets/standard-chartered-home.png",
   "/assets/spec-secondary.svg",
   "/data/fixtures-2025-manifest.json",
-  "/assets/audio/engine-loop.m4a",
+  "/assets/audio/shanghai.m4a",
   "/assets/drivers/ALB.webp",
   "/assets/drivers/ALO.webp",
   "/assets/drivers/ANT.webp",
